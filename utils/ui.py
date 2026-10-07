@@ -18,7 +18,7 @@ html, body, .stMarkdown, .stMarkdown p, label, button p, input, textarea,
   font-family: 'Material Symbols Rounded', 'Material Icons' !important;
 }
 h1, h2, h3, .calhead, .hero-title {font-family: 'Jua', 'Gowun Dodum', sans-serif !important; letter-spacing: 0;}
-.block-container {padding-top: 2.2rem; padding-bottom: 3rem; max-width: 1100px;}
+.block-container {padding-top: 4rem; padding-bottom: 3rem; max-width: 1100px;}
 
 /* ---- 버튼 둥글게 ---- */
 .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
@@ -44,7 +44,7 @@ button[data-baseweb="tab"] {border-radius: 12px 12px 0 0; font-weight: 700;}
 
 /* ---- 모바일 공통 ---- */
 @media (max-width: 640px) {
-  .block-container {padding-left: 0.8rem; padding-right: 0.8rem; padding-top: 3rem !important;}
+  .block-container {padding-left: 0.8rem; padding-right: 0.8rem; padding-top: 4rem !important;}
   h1 {font-size: 1.6rem !important;}
   h2, h3 {font-size: 1.2rem !important;}
   .stButton > button, .stDownloadButton > button {min-height: 2.8rem;}
