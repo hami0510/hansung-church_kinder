@@ -55,28 +55,33 @@ with tab_list:
             )
 
 with tab_add:
-    with st.form("add_event", clear_on_submit=True):
-        title = st.text_input("제목 *")
-        c1, c2, c3 = st.columns([2, 1, 2])
-        d = c1.date_input("날짜", value=date.today())
-        use_time = c2.checkbox("시간 지정")
-        t = c2.time_input("시간", value=time(10, 0), step=900)  # 15분 단위
-        cat = c3.selectbox("구분", CATEGORIES)
-        loc = st.text_input("장소")
-        desc = st.text_area("내용")
-        st.caption("시간이 필요 없으면 '시간 지정'을 체크하지 않으면 됩니다.")
-        if st.form_submit_button("등록"):
-            if not title.strip():
-                st.error("제목은 필수입니다.")
-            else:
-                insert("events", {
-                    "title": title.strip(), "event_date": d.isoformat(),
-                    "event_time": t.strftime("%H:%M") if use_time else None,
-                    "category": cat, "location": loc or None, "description": desc or None,
-                    "created_by": "관리자" if is_admin else "교사",
-                })
-                st.session_state["flash"] = "일정이 등록되었습니다."
-                st.rerun()
+    title = st.text_input("제목 *", key="ev_title")
+    use_time = st.checkbox("시간 지정", key="ev_use_time")
+
+    c1, c2, c3 = st.columns(3)
+    d = c1.date_input("날짜", value=date.today(), key="ev_date")
+    t = c2.time_input("시간", value=time(10, 0), step=900,
+                      disabled=not use_time, key="ev_time")  # 15분 단위
+    cat = c3.selectbox("구분", CATEGORIES, key="ev_cat")
+
+    loc = st.text_input("장소", key="ev_loc")
+    desc = st.text_area("내용", key="ev_desc")
+
+    if st.button("등록", key="ev_submit"):
+        if not title.strip():
+            st.error("제목은 필수입니다.")
+        else:
+            insert("events", {
+                "title": title.strip(), "event_date": d.isoformat(),
+                "event_time": t.strftime("%H:%M") if use_time else None,
+                "category": cat, "location": loc or None, "description": desc or None,
+                "created_by": "관리자" if is_admin else "교사",
+            })
+            # 입력칸 비우기
+            for k in ["ev_title", "ev_use_time", "ev_loc", "ev_desc"]:
+                st.session_state.pop(k, None)
+            st.session_state["flash"] = "일정이 등록되었습니다."
+            st.rerun()
 
 if is_admin:
     with tabs[2]:
