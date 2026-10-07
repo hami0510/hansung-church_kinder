@@ -5,6 +5,7 @@ import streamlit as st
 from utils.auth import can_manage
 from utils.db import fetch, insert, update, delete
 from utils.labels import class_label
+from utils.pick import search_pick
 
 KST = ZoneInfo("Asia/Seoul")
 STATUS = ["출석", "불참", "미정"]
@@ -48,10 +49,9 @@ teachers = teachers[teachers["is_active"] == True]
 tab_in, tab_sum = st.tabs(["내 출석 보고", "제출 현황"])
 
 with tab_in:
-    opts = {f"{r['name']} ({class_label(r)})": r["id"]
-            for _, r in teachers.iterrows()}
-    me = st.selectbox("선생님 이름 선택", list(opts))
-    tid = opts[me]
+        tid = search_pick(teachers, "선생님", key="sr")
+    if tid is None:
+        st.stop()
 
     rep = fetch("sunday_reports")
     mine = None
