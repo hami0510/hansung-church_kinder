@@ -2,3 +2,4 @@ streamlit>=1.36
 supabase>=2.5
 pandas
 pillow
+openpyxl
