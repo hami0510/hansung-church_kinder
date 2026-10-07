@@ -1,6 +1,11 @@
+import io
+import time
 import streamlit as st
 import pandas as pd
+from PIL import Image, ImageOps
 from supabase import create_client
+
+BUCKET = "child-photos"
 
 
 @st.cache_resource
@@ -25,3 +30,45 @@ def update(table: str, row_id: str, row: dict):
 
 def delete(table: str, row_id: str):
     return get_client().table(table).delete().eq("id", row_id).execute()
+
+
+# ---------- 사진 ----------
+def process_image(file, max_side: int = 800) -> bytes:
+    """업로드 사진을 회전 보정 후 축소하고 JPEG로 변환 (위치 등 EXIF 정보는 제거됨)"""
+    img = Image.open(file)
+    img = ImageOps.exif_transpose(img).convert("RGB")
+    img.thumbnail((max_side, max_side))
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=85)
+    return buf.getvalue()
+
+
+def upload_photo(child_id: str, data: bytes, old_path: str | None = None) -> str:
+    path = f"{child_id}_{int(time.time())}.jpg"
+    get_client().storage.from_(BUCKET).upload(
+        path, data, {"content-type": "image/jpeg", "upsert": "true"}
+    )
+    if old_path:
+        remove_photo(old_path)
+    return path
+
+
+def remove_photo(path: str | None):
+    if not path:
+        return
+    try:
+        get_client().storage.from_(BUCKET).remove([path])
+    except Exception:
+        pass
+
+
+@st.cache_data(ttl=3000, show_spinner=False)
+def photo_url(path: str) -> str:
+    """비공개 사진을 1시간 동안만 볼 수 있는 임시 주소로 변환"""
+    if not path:
+        return ""
+    try:
+        res = get_client().storage.from_(BUCKET).create_signed_url(path, 3600)
+        return res.get("signedURL") or res.get("signedUrl") or ""
+    except Exception:
+        return ""
