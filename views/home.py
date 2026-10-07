@@ -5,7 +5,7 @@ import streamlit as st
 from utils.db import fetch
 from utils.ui import hero
 from utils.notice_ui import notice_cards
-from utils.birthdays import collect, in_month, upcoming
+from utils.birthdays import collect, upcoming
 
 try:
     from streamlit_calendar import calendar as st_calendar
@@ -14,6 +14,8 @@ except Exception:
 
 # 아동 생일(이름·반만)을 일반 방문자에게도 보여줄지 (False = 관리자만)
 SHOW_CHILD_BIRTHDAY_TO_ALL = True
+# 다가오는 생일을 며칠 앞까지 보여줄지
+UPCOMING_DAYS = 30
 
 hero()
 
@@ -49,30 +51,12 @@ if not ev.empty:
 # 생일 목록
 children = fetch("children")
 teachers = fetch("teachers")
-people = collect(children if (SHOW_CHILD_BIRTHDAY_TO_ALL or is_admin) else None, teachers)
-
-# ---------- 이번 주 생일 ----------
-week = upcoming(people, today, days=7)
-if week:
-    st.subheader("🎂 이번 주 생일")
-    cards = ["<div class='kcards'>"]
-    for p in week:
-        d = p["date"]
-        if d == today:
-            when = "오늘 🎉"
-        elif (d - today).days == 1:
-            when = "내일"
-        else:
-            when = f"{d.month}/{d.day}({'월화수목금토일'[d.weekday()]})"
-        sub = p["cls"] if p["kind"] == "아동" else "선생님"
-        cards.append(
-            "<div class='kcard'>"
-            f"<div class='kmuted'>{html.escape(when)}</div>"
-            f"<div class='ktop'>🎂 {html.escape(str(p['name']))}"
-            f"<span class='ktag'>{html.escape(p['kind'])}</span></div>"
-            f"<div class='ksub'>{html.escape(sub)}</div></div>")
-    cards.append("</div>")
-    st.markdown("".join(cards), unsafe_allow_html=True)
+for df_ in (children, teachers):
+    for col in ("service_part", "class_no"):
+        if not df_.empty and col not in df_.columns:
+            df_[col] = None
+show_children = SHOW_CHILD_BIRTHDAY_TO_ALL or is_admin
+people_all = collect(children if show_children else None, teachers)
 
 # ---------- 달력용 데이터 ----------
 cal_events = []
@@ -91,18 +75,21 @@ if not ev.empty:
             "backgroundColor": "#dff0ff", "borderColor": "#bfe0fa", "textColor": "#1b3a5c",
         })
 
-day_bds = {}  # "YYYY-MM-DD" -> 생일 목록 (팝업용)
+# 달력의 생일 칩(🎂)과 팝업용 생일 목록: 앞뒤 해를 포함해 3개 연도 분량
+day_bds = {}  # "YYYY-MM-DD" -> 생일 목록
 for y in (today.year - 1, today.year, today.year + 1):
-    for m in range(1, 13):
-        for d, plist in in_month(people, y, m).items():
-            iso = date(y, m, d).isoformat()
-            for p in plist:
-                day_bds.setdefault(iso, []).append(p)
-                cal_events.append({
-                    "id": f"bd_{iso}_{p['name']}", "title": f"🎂 {p['name']}", "start": iso,
-                    "allDay": True,
-                    "backgroundColor": "#fff3bf", "borderColor": "#ffd43b", "textColor": "#5c4a00",
-                })
+    for p in people_all:
+        try:
+            d_ = date(y, p["month"], p["day"])
+        except ValueError:  # 2/29 생일은 평년에 2/28로
+            d_ = date(y, 2, 28)
+        iso = d_.isoformat()
+        day_bds.setdefault(iso, []).append(p)
+        cal_events.append({
+            "id": f"bd_{iso}_{p['name']}", "title": f"🎂 {p['name']}", "start": iso,
+            "allDay": True,
+            "backgroundColor": "#fff3bf", "borderColor": "#ffd43b", "textColor": "#5c4a00",
+        })
 
 
 @st.dialog("📅 일정 보기")
@@ -195,3 +182,48 @@ else:
     if clicked_iso and click_id != st.session_state.get("last_click_id"):
         st.session_state["last_click_id"] = click_id
         show_day(clicked_iso)
+
+# ---------- 다가오는 생일 (달력 아래) ----------
+soon = upcoming(people_all, today, days=UPCOMING_DAYS)
+if soon:
+    st.subheader("🎂 다가오는 생일")
+
+
+    def bday_rows(items):
+        out = []
+        for p in items:
+            d = p["date"]
+            left = (d - today).days
+            if left == 0:
+                badge = "오늘 🎉"
+            elif left == 1:
+                badge = "내일"
+            else:
+                badge = f"D-{left}"
+            sub = p["cls"] if p["kind"] == "아동" else "선생님"
+            out.append(
+                "<div style='display:flex;align-items:baseline;gap:.6rem;padding:.5rem .2rem;"
+                "border-bottom:1px solid rgba(128,128,128,.18);line-height:1.35'>"
+                f"<span style='flex:0 0 5.6rem;font-weight:700;color:#3b5f85'>"
+                f"{d.month}/{d.day}({'월화수목금토일'[d.weekday()]})</span>"
+                f"<span style='flex:1;min-width:0'><b>{html.escape(str(p['name']))}</b>"
+                f"<span style='font-size:.85rem;color:#8a97a8'> · {html.escape(sub)}</span></span>"
+                f"<span style='font-size:.78rem;padding:.05rem .55rem;border-radius:999px;"
+                f"background:#fff3bf;color:#5c4a00;white-space:nowrap'>{html.escape(badge)}</span>"
+                "</div>")
+        return "".join(out)
+
+    kids = [p for p in soon if p["kind"] == "아동"]
+    teas = [p for p in soon if p["kind"] == "교사"]
+    tabs = []
+    if kids:
+        tabs.append(("아동", kids))
+    if teas:
+        tabs.append(("교사", teas))
+    if len(tabs) == 1:
+        st.markdown(bday_rows(tabs[0][1]), unsafe_allow_html=True)
+    else:
+        t_objs = st.tabs([f"{name} ({len(items)})" for name, items in tabs])
+        for t_obj, (_, items) in zip(t_objs, tabs):
+            with t_obj:
+                st.markdown(bday_rows(items), unsafe_allow_html=True)
