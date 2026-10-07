@@ -1,6 +1,6 @@
 from datetime import date
 import streamlit as st
-from utils.db import fetch, insert, update
+from utils.db import fetch, insert, update, delete
 
 # 관리자 이중 확인 (직접 접근 방지)
 if st.session_state.get("role") != "admin":
@@ -9,13 +9,24 @@ if st.session_state.get("role") != "admin":
 
 st.title("🧒 아동 명부")
 
-tab_list, tab_add, tab_edit = st.tabs(["명단 보기", "신규 등록", "수정/퇴원 처리"])
+# 작업 완료 메시지 (rerun 후에도 보이도록 보관)
+if "flash" in st.session_state:
+    st.success(st.session_state.pop("flash"))
+
+tab_list, tab_add, tab_edit, tab_del = st.tabs(
+    ["명단 보기", "신규 등록", "수정/퇴원 처리", "완전 삭제"]
+)
 
 COLS = {
     "name": "이름", "birth_date": "생년월일", "gender": "성별", "class_name": "반",
     "guardian_name": "보호자", "guardian_phone": "연락처", "allergy": "알레르기",
     "notes": "특이사항", "is_new_family": "새가족", "registered_at": "등록일",
 }
+
+
+def label_of(r):
+    return f"{r['name']} ({r.get('class_name') or '반 미정'}, {r.get('birth_date') or '생일 미입력'})"
+
 
 with tab_list:
     df = fetch("children", "name")
@@ -62,15 +73,16 @@ with tab_add:
                     "allergy": allergy or None, "notes": notes or None,
                     "is_new_family": new_family,
                 })
-                st.success(f"{name} 등록 완료")
+                st.session_state["flash"] = f"{name.strip()} 등록 완료"
+                st.rerun()
 
 with tab_edit:
     df = fetch("children", "name")
     if df.empty:
         st.info("수정할 아동이 없습니다.")
     else:
-        options = {f"{r['name']} ({r.get('class_name') or '반 미정'})": r["id"] for _, r in df.iterrows()}
-        pick = st.selectbox("아동 선택", list(options))
+        options = {label_of(r): r["id"] for _, r in df.iterrows()}
+        pick = st.selectbox("아동 선택", list(options), key="edit_pick")
         row = df[df["id"] == options[pick]].iloc[0]
         with st.form("edit_child"):
             c1, c2 = st.columns(2)
@@ -85,4 +97,26 @@ with tab_edit:
                     "allergy": e_allergy or None, "notes": e_notes or None,
                     "is_active": e_active,
                 })
-                st.success("저장되었습니다. 새로고침하면 반영됩니다.")
+                st.session_state["flash"] = f"{row['name']} 정보를 저장했습니다."
+                st.rerun()
+
+with tab_del:
+    st.subheader("아동 완전 삭제")
+    st.warning(
+        "완전 삭제는 **되돌릴 수 없으며**, 해당 아동의 출석·심방 기록도 함께 삭제됩니다.\n\n"
+        "기록을 남기고 명단에서만 빼려면 '수정/퇴원 처리' 탭에서 **퇴원 처리**를 사용하세요."
+    )
+    df_del = fetch("children", "name")
+    if df_del.empty:
+        st.info("삭제할 아동이 없습니다.")
+    else:
+        options = {label_of(r): (r["id"], r["name"]) for _, r in df_del.iterrows()}
+        target = st.selectbox("삭제할 아동 선택", ["선택 안 함"] + list(options), key="del_pick")
+        if target != "선택 안 함":
+            child_id, child_name = options[target]
+            typed = st.text_input(f"확인을 위해 아동 이름 '{child_name}'을(를) 그대로 입력하세요")
+            ok = typed.strip() == child_name
+            if st.button("완전 삭제", type="primary", disabled=not ok):
+                delete("children", child_id)
+                st.session_state["flash"] = f"{child_name} 정보를 완전히 삭제했습니다."
+                st.rerun()
