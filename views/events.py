@@ -7,7 +7,6 @@ from utils.ui import event_cards
 st.title("📅 일정 관리")
 
 # 일정은 비밀번호 없이 누구나 등록·삭제 가능
-# (나중에 관리자 전용으로 바꾸려면 아래 줄을 manage = st.session_state.get("role") == "admin" 으로 교체)
 manage = True
 
 CATEGORIES = ["예배", "행사", "교사회의", "교육", "심방", "기타"]
@@ -29,7 +28,7 @@ def prepare(df):
     return df
 
 
-# 작업 완료 메시지 (rerun 후에도 보이도록 보관)
+# 삭제 후 완료 메시지 (등록은 toast로 표시)
 if "flash" in st.session_state:
     st.success(st.session_state.pop("flash"))
 
@@ -53,19 +52,21 @@ with tab_list:
 
 # ---------------------------------------------------------------- 일정 등록
 with tab_add:
-    title = st.text_input("제목 *", key="ev_title")
-    use_time = st.checkbox("시간 지정", key="ev_use_time")
+    with st.form("add_event", clear_on_submit=True):
+        title = st.text_input("제목 *")
+        use_time = st.checkbox("시간 지정 (체크하면 아래 시간이 저장됩니다)")
 
-    c1, c2, c3 = st.columns(3)
-    d = c1.date_input("날짜", value=date.today(), key="ev_date")
-    t = c2.time_input("시간", value=time(10, 0), step=900,
-                      disabled=not use_time, key="ev_time")  # 15분 단위
-    cat = c3.selectbox("구분", CATEGORIES, key="ev_cat")
+        c1, c2, c3 = st.columns(3)
+        d = c1.date_input("날짜", value=date.today())
+        t = c2.time_input("시간", value=time(10, 0), step=900)  # 15분 단위
+        cat = c3.selectbox("구분", CATEGORIES)
 
-    loc = st.text_input("장소", key="ev_loc")
-    desc = st.text_area("내용", key="ev_desc")
+        loc = st.text_input("장소")
+        desc = st.text_area("내용")
 
-    if st.button("등록", key="ev_submit", use_container_width=True):
+        submitted = st.form_submit_button("등록", use_container_width=True)
+
+    if submitted:
         if not title.strip():
             st.error("제목은 필수입니다.")
         else:
@@ -75,10 +76,7 @@ with tab_add:
                 "category": cat, "location": loc or None, "description": desc or None,
                 "created_by": "교사",
             })
-            for k in ["ev_title", "ev_use_time", "ev_loc", "ev_desc"]:
-                st.session_state.pop(k, None)
-            st.session_state["flash"] = "일정이 등록되었습니다."
-            st.rerun()
+            st.toast("일정이 등록되었습니다.", icon="✅")
 
 # ---------------------------------------------------------------- 일정 삭제
 with tab_del:
