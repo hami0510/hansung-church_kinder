@@ -54,7 +54,7 @@ button[data-baseweb="tab"] {border-radius: 12px 12px 0 0; font-weight: 700;}
   min-width: 0 !important; flex: 1 1 0 !important; width: auto !important;}
 .calhead {text-align: center; font-size: 1.4rem; margin: 0.2rem 0 0.4rem;}
 
-/* ---- 월간 달력 ---- */
+/* ---- 월간 달력 (표 모양) ---- */
 .kcal {width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed;
        border: 2px solid #bfe0fa; border-radius: 16px; overflow: hidden;}
 .kcal th {background: #cfe9fc; color: #1b3a5c; padding: 7px 2px; border-bottom: 2px solid #bfe0fa; font-size: 14px;}
@@ -97,6 +97,21 @@ button[data-baseweb="tab"] {border-radius: 12px 12px 0 0; font-weight: 700;}
 .kphoto {width: 68px; height: 68px; border-radius: 50%; object-fit: cover;
          border: 3px solid #bfe0fa; flex-shrink: 0; background: #dff0ff;}
 .kphoto.ph {display: flex; align-items: center; justify-content: center; font-size: 1.9rem;}
+
+/* ---- 일정 목록(한 줄 행) ---- */
+.evday {font-weight: 700; color: #1b3a5c; margin: 1rem 0 .2rem; padding-bottom: .2rem;
+        border-bottom: 2px solid #cfe5f8; font-size: 1.02rem;}
+.evday.sun {color: #d6336c;}
+.evday.sat {color: #1c64f2;}
+.evday.today {background: #fff3bf; border-radius: 8px; padding: .15rem .5rem;}
+.st-key-evlist .stButton > button {
+  border: none !important; background: transparent !important; box-shadow: none !important;
+  border-radius: 10px !important; justify-content: flex-start; text-align: left;
+  padding: .45rem .6rem !important; min-height: 2.4rem; font-weight: 400;}
+.st-key-evlist .stButton > button:hover {background: rgba(74,159,224,.12) !important;}
+.st-key-evlist .stButton > button p {text-align: left; width: 100%; font-size: .98rem;
+  white-space: normal; margin: 0;}
+.st-key-evlist [data-testid="stVerticalBlock"] {gap: .05rem;}
 </style>
 """
 
