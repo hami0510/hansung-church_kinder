@@ -16,6 +16,9 @@ except Exception:
 SHOW_CHILD_BIRTHDAY_TO_ALL = True
 # 다가오는 생일을 며칠 앞까지 보여줄지
 UPCOMING_DAYS = 30
+# True  = 일정을 누르면 '열기' 확인 줄이 먼저 나옴 (스크롤 오작동 방지, 모바일 권장)
+# False = 일정을 누르면 바로 팝업이 열림
+MOBILE_CONFIRM = True
 
 hero()
 
@@ -177,26 +180,48 @@ else:
         .fc-event-title {overflow: hidden; text-overflow: ellipsis;}
         .fc-button-primary {background: #4a9fe0 !important; border-color: #4a9fe0 !important;}
     """
-    # key를 고정해서 달력이 다시 만들어지지 않게 함 (깜빡임·달 초기화 방지)
+    # 날짜 칸 클릭(dateClick)은 받지 않음: 스크롤 중 스치는 터치가 팝업을 여는 문제 방지
     state = st_calendar(events=cal_events, options=options, custom_css=custom_css,
-                        callbacks=["dateClick", "eventClick"], key="home_cal")
+                        callbacks=["eventClick"], key="home_cal")
 
     clicked_iso, click_id = None, None
-    if state:
-        if state.get("dateClick"):
-            dc = state["dateClick"]
-            clicked_iso = str(dc.get("date", ""))[:10] or None
-            click_id = ("d", str(dc.get("date")), str(dc.get("timeStamp", "")))
-        elif state.get("eventClick"):
-            ec = state["eventClick"]
-            start = str(ec.get("event", {}).get("start", ""))
-            clicked_iso = start[:10] or None
-            click_id = ("e", str(ec.get("event", {}).get("id", "")), str(ec.get("timeStamp", "")))
+    if state and state.get("eventClick"):
+        ec = state["eventClick"]
+        start = str(ec.get("event", {}).get("start", ""))
+        clicked_iso = start[:10] or None
+        click_id = (str(ec.get("event", {}).get("id", "")), str(ec.get("timeStamp", "")))
 
-    # 새로운 클릭일 때만 팝업을 연다 (이미 처리한 클릭은 무시)
+    # 새로운 클릭일 때만 처리 (이미 처리한 클릭은 무시)
     if clicked_iso and click_id != st.session_state.get("last_click_id"):
         st.session_state["last_click_id"] = click_id
-        show_day(clicked_iso)
+        if MOBILE_CONFIRM:
+            st.session_state["pending_day"] = clicked_iso   # 확인 줄에 보관만 함
+        else:
+            show_day(clicked_iso)
+
+    # 선택한 날짜 확인 줄 (스치기로는 팝업이 열리지 않음)
+    if MOBILE_CONFIRM:
+        pend = st.session_state.get("pending_day")
+        c1, c2, c3 = st.columns([3, 1, 1])
+        if pend:
+            d_ = date.fromisoformat(pend)
+            n = len(day_events.get(pend, [])) + len(day_bds.get(pend, []))
+            c1.markdown(
+                f"<div style='padding:.55rem .2rem'>📌 <b>{d_.month}월 {d_.day}일 "
+                f"({'월화수목금토일'[d_.weekday()]})</b> · {n}건</div>", unsafe_allow_html=True)
+            if c2.button("열기", key="open_pending", type="primary", use_container_width=True):
+                show_day(pend)
+            if c3.button("닫기", key="clear_pending", use_container_width=True):
+                st.session_state.pop("pending_day", None)
+                st.rerun()
+        else:
+            c1.caption("일정을 누르면 여기에 표시되고, '열기'를 누르면 자세히 볼 수 있습니다.")
+
+    # 일정이 없는 날도 보고 싶을 때: 날짜 직접 선택
+    with st.expander("📆 날짜를 골라서 보기"):
+        pick = st.date_input("날짜", value=today, key="pick_day")
+        if st.button("이 날짜 열기", key="open_pick", use_container_width=True):
+            show_day(pick.isoformat())
 
 # ---------- 다가오는 생일 (달력 아래, 항상 표시) ----------
 st.subheader("🎂 다가오는 생일")
