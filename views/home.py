@@ -1,4 +1,3 @@
-import calendar
 import html
 from datetime import date
 import pandas as pd
@@ -7,6 +6,11 @@ from utils.db import fetch
 from utils.ui import hero
 from utils.notice_ui import notice_cards
 from utils.birthdays import collect, in_month, upcoming
+
+try:
+    from streamlit_calendar import calendar as st_calendar
+except Exception:
+    st_calendar = None
 
 # 아동 생일(이름·반만)을 일반 방문자에게도 보여줄지 (False = 관리자만)
 SHOW_CHILD_BIRTHDAY_TO_ALL = True
@@ -26,24 +30,6 @@ if not nt.empty:
     nt = nt.sort_values(["_pin", "created_at"], ascending=[False, False])
     st.subheader("📢 공지")
     notice_cards(nt.head(3))
-
-# 보고 있는 달 (세션에 보관)
-if "cal_year" not in st.session_state:
-    st.session_state["cal_year"] = today.year
-    st.session_state["cal_month"] = today.month
-
-
-def move_month(delta: int):
-    y, m = st.session_state["cal_year"], st.session_state["cal_month"] + delta
-    if m < 1:
-        y, m = y - 1, 12
-    elif m > 12:
-        y, m = y + 1, 1
-    st.session_state["cal_year"], st.session_state["cal_month"] = y, m
-
-
-def go_today():
-    st.session_state["cal_year"], st.session_state["cal_month"] = today.year, today.month
 
 
 def fmt_time(v):
@@ -88,72 +74,45 @@ if week:
     cards.append("</div>")
     st.markdown("".join(cards), unsafe_allow_html=True)
 
-# ---------- 월간 달력 ----------
-st.subheader("🗓️ 월간 일정")
-
-year, month = st.session_state["cal_year"], st.session_state["cal_month"]
-st.markdown(f"<div class='calhead'>{year}년 {month}월</div>", unsafe_allow_html=True)
-
-with st.container(key="calnav"):
-    b1, b2, b3 = st.columns(3)
-    b1.button("◀", on_click=move_month, args=(-1,), use_container_width=True, key="m_prev")
-    b2.button("오늘", on_click=go_today, use_container_width=True, key="m_today")
-    b3.button("▶", on_click=move_month, args=(1,), use_container_width=True, key="m_next")
-
-# 날짜별 일정·생일 모으기
-day_events = {}
-by_day = {}
+# ---------- 달력용 데이터 ----------
+# 일정 칩 + 생일 칩 (생일은 앞뒤 해를 포함해 3개 연도 분량 생성)
+cal_events = []
+day_events = {}  # "YYYY-MM-DD" -> 일정 행 목록 (팝업용)
 if not ev.empty:
-    d_series = pd.to_datetime(ev["event_date"])
-    month_ev = ev[(d_series.dt.year == year) & (d_series.dt.month == month)]
-    for _, r in month_ev.iterrows():
-        day_events.setdefault(r["event_date"].day, []).append(r)
+    for _, r in ev.iterrows():
+        iso = r["event_date"].isoformat()
+        day_events.setdefault(iso, []).append(r)
         title = str(r["title"])
         cat = r.get("category")
-        label = title if (not cat or cat == title) else f"{title}-{cat}"
-        if r["time_str"]:
-            label = f"{r['time_str']} {label}"
-        by_day.setdefault(r["event_date"].day, []).append(label)
+        label = title if (not isinstance(cat, str) or not cat or cat == title) else f"{title}-{cat}"
+        start = f"{iso}T{r['time_str']}:00" if r["time_str"] else iso
+        cal_events.append({
+            "id": str(r["id"]), "title": label, "start": start,
+            "allDay": not bool(r["time_str"]),
+            "backgroundColor": "#dff0ff", "borderColor": "#bfe0fa", "textColor": "#1b3a5c",
+        })
 
-day_bds = in_month(people, year, month)
-for day, plist in day_bds.items():
-    for p in plist:
-        by_day.setdefault(day, []).append(f"🎂 {p['name']}")
-
-MAX_SHOW = 2
-cal = calendar.Calendar(firstweekday=6)  # 일요일 시작
-weeks = cal.monthdayscalendar(year, month)
-
-rows = ["<table class='kcal'><tr>"
-        "<th class='sun'>일</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th><th class='sat'>토</th></tr>"]
-for wk in weeks:
-    rows.append("<tr>")
-    for i, d in enumerate(wk):
-        if d == 0:
-            rows.append("<td></td>")
-            continue
-        cls = "d sun" if i == 0 else ("d sat" if i == 6 else "d")
-        td_cls = "today" if (year, month, d) == (today.year, today.month, today.day) else ""
-        items = by_day.get(d, [])
-        body = "".join(f"<div class='ev'>{html.escape(x)}</div>" for x in items[:MAX_SHOW])
-        if len(items) > MAX_SHOW:
-            body += f"<div class='more'>+{len(items) - MAX_SHOW}개 더보기</div>"
-        if items:  # 모바일용 점 표시
-            body += "<div class='dots'>" + "<span class='dot'></span>" * min(len(items), 4) + "</div>"
-        rows.append(f"<td class='{td_cls}'><div class='{cls}'>{d}</div>{body}</td>")
-    rows.append("</tr>")
-rows.append("</table>")
-
-st.markdown("".join(rows), unsafe_allow_html=True)
+day_bds = {}  # "YYYY-MM-DD" -> 생일 목록 (팝업용)
+for y in (today.year - 1, today.year, today.year + 1):
+    for m in range(1, 13):
+        for d, plist in in_month(people, y, m).items():
+            iso = date(y, m, d).isoformat()
+            for p in plist:
+                day_bds.setdefault(iso, []).append(p)
+                cal_events.append({
+                    "id": f"bd_{iso}_{p['name']}", "title": f"🎂 {p['name']}", "start": iso,
+                    "allDay": True,
+                    "backgroundColor": "#fff3bf", "borderColor": "#ffd43b", "textColor": "#5c4a00",
+                })
 
 
-# ---------- 날짜 선택 → 팝업 ----------
 @st.dialog("📅 일정 보기")
-def show_day(y: int, m: int, d: int):
-    wd = "월화수목금토일"[date(y, m, d).weekday()]
-    st.markdown(f"### {m}월 {d}일 ({wd})")
-    evs = day_events.get(d, [])
-    bds = day_bds.get(d, [])
+def show_day(iso: str):
+    d = date.fromisoformat(iso)
+    wd = "월화수목금토일"[d.weekday()]
+    st.markdown(f"### {d.month}월 {d.day}일 ({wd})")
+    evs = day_events.get(iso, [])
+    bds = day_bds.get(iso, [])
     if not evs and not bds:
         st.write("이 날은 등록된 일정이 없습니다.")
         return
@@ -185,19 +144,48 @@ def show_day(y: int, m: int, d: int):
     st.markdown("".join(cards), unsafe_allow_html=True)
 
 
-active_days = sorted(set(day_events) | set(day_bds))
-if active_days:
-    def fmt_day(d):
-        wd = "월화수목금토일"[date(year, month, d).weekday()]
-        names = [str(r["title"]) for r in day_events.get(d, [])]
-        names += [f"🎂{p['name']}" for p in day_bds.get(d, [])]
-        return f"{month}/{d}({wd}) · " + ", ".join(names[:2]) + (" …" if len(names) > 2 else "")
+# ---------- 월간 달력 ----------
+st.subheader("🗓️ 월간 일정")
 
-    c1, c2 = st.columns([4, 1])
-    pick = c1.selectbox("일정 자세히 보기", active_days, format_func=fmt_day,
-                        index=None, placeholder="날짜를 선택하면 팝업으로 열립니다",
-                        key=f"day_pick_{year}_{month}")
-    if pick is not None:
-        show_day(year, month, pick)
+if st_calendar is None:
+    st.warning("달력을 불러오지 못했습니다. requirements.txt에 streamlit-calendar가 있는지 확인해 주세요.")
 else:
-    st.caption("이 달에는 등록된 일정이 없습니다.")
+    # 팝업을 닫은 뒤 같은 날을 다시 눌러도 열리도록, 달력 key를 바꿔 클릭 기록을 초기화
+    n = st.session_state.get("cal_reset", 0)
+    options = {
+        "initialView": "dayGridMonth",
+        "locale": "ko",
+        "firstDay": 0,
+        "height": 650,
+        "fixedWeekCount": False,
+        "dayMaxEvents": 3,
+        "moreLinkText": "개 더보기",
+        "headerToolbar": {"left": "prev,next today", "center": "title", "right": ""},
+        "buttonText": {"today": "오늘"},
+        "dayCellClassNames": [],
+    }
+    custom_css = """
+        .fc-toolbar-title {font-size: 1.3rem !important; font-weight: 700;}
+        .fc-col-header-cell {background: #cfe9fc;}
+        .fc-col-header-cell-cushion {color: #1b3a5c; text-decoration: none;}
+        .fc-day-sun .fc-daygrid-day-number, .fc-day-sun .fc-col-header-cell-cushion {color: #d6336c !important;}
+        .fc-day-sat .fc-daygrid-day-number, .fc-day-sat .fc-col-header-cell-cushion {color: #1c64f2 !important;}
+        .fc-daygrid-day-number {text-decoration: none; font-weight: 700;}
+        .fc-day-today {background: #fff3bf !important;}
+        .fc-event {cursor: pointer; border-radius: 8px; padding: 0 3px; font-size: 0.78rem;}
+        .fc-button-primary {background: #4a9fe0 !important; border-color: #4a9fe0 !important;}
+    """
+    state = st_calendar(events=cal_events, options=options, custom_css=custom_css,
+                        callbacks=["dateClick", "eventClick"], key=f"cal_{n}")
+
+    clicked_iso = None
+    if state:
+        if state.get("dateClick"):
+            clicked_iso = str(state["dateClick"]["date"])[:10]
+        elif state.get("eventClick"):
+            start = str(state["eventClick"]["event"].get("start", ""))
+            clicked_iso = start[:10] or None
+
+    if clicked_iso:
+        st.session_state["cal_reset"] = n + 1  # 다음 실행에서 클릭 기록 초기화
+        show_day(clicked_iso)
