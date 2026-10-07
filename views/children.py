@@ -35,10 +35,11 @@ else:
     st.caption("🔒 등록·수정·삭제는 관리자 로그인 후 가능합니다. (왼쪽 위 ≫ 메뉴에서 로그인)")
 
 COLS = {
-    "name": "이름", "birth_date": "생년월일", "gender": "성별", "class_name": "반",
-    "service_part": "부", "class_no": "반 번호",
-    "guardian_name": "보호자", "guardian_phone": "연락처", "allergy": "알레르기",
-    "notes": "특이사항", "is_new_family": "새가족", "registered_at": "등록일",
+    "name": "이름", "gender": "성별", "birth_date": "생년월일",
+    "guardian_name": "보호자", "guardian_phone": "연락처",
+    "class_name": "반", "service_part": "부", "class_no": "반 번호",
+    "allergy": "알레르기", "notes": "특이사항",
+    "is_new_family": "새가족", "registered_at": "등록일",
 }
 
 
@@ -68,6 +69,7 @@ def ensure_cols(df):
     return df
 
 
+# ---------------------------------------------------------------- 명단
 with tab_list:
     df = fetch("children", "name")
     if df.empty:
@@ -109,27 +111,29 @@ with tab_list:
             view = df[[c for c in COLS if c in df.columns]].rename(columns=COLS)
             st.download_button(
                 "CSV 다운로드",
-                view.to_csv(index=False).encode("utf-8-sig"),
+                view.to_csv(index=False).encode("utf-8-sig"),  # 엑셀에서 한글 안 깨지게
                 file_name=f"유치부_명부_{date.today()}.csv",
                 mime="text/csv",
                 use_container_width=True,
             )
 
 if manage:
+    # ------------------------------------------------------------ 신규 등록
     with tab_add:
         with st.form("add_child", clear_on_submit=True):
-            c1, c2 = st.columns(2)
+            c1, c2, c3 = st.columns(3)
             name = c1.text_input("이름 *")
-            birth = c2.date_input("생년월일", value=date(2021, 1, 1),
+            gender = c2.selectbox("성별", ["", "남", "여"])
+            birth = c3.date_input("생년월일", value=date(2021, 1, 1),
                                   min_value=date(2015, 1, 1), max_value=date.today())
-            gender = c1.selectbox("성별", ["", "남", "여"])
-            g_name = c2.text_input("보호자 이름")
-            c3, c4, c5 = st.columns(3)
-            class_pick = c3.selectbox("반", [NONE] + CLASSES)
-            part_pick = c4.selectbox("부", [NONE] + PARTS)
-            no_pick = c5.selectbox("반 번호", [NONE] + NOS,
+            c4, c5 = st.columns(2)
+            g_name = c4.text_input("보호자 이름")
+            g_phone = c5.text_input("보호자 연락처")
+            c6, c7, c8 = st.columns(3)
+            class_pick = c6.selectbox("반", [NONE] + CLASSES)
+            part_pick = c7.selectbox("부", [NONE] + PARTS)
+            no_pick = c8.selectbox("반 번호", [NONE] + NOS,
                                    format_func=lambda x: x if x == NONE else f"{x}반")
-            g_phone = st.text_input("보호자 연락처")
             allergy = st.text_input("알레르기")
             notes = st.text_area("특이사항")
             new_family = st.checkbox("새가족 (새싹 반을 고르면 자동 체크)")
@@ -161,6 +165,7 @@ if manage:
                     st.session_state["flash"] = msg
                     st.rerun()
 
+    # ------------------------------------------------------------ 수정/퇴원
     with tab_edit:
         df_e = fetch("children", "name")
         if df_e.empty:
@@ -184,38 +189,57 @@ if manage:
             cur_no = to_no(row.get("class_no"))
             no_opts = [NONE] + NOS
 
+            cur_gender = s_or_empty(row.get("gender"))
+            gender_opts = ["", "남", "여"]
+            try:
+                cur_birth = date.fromisoformat(str(row.get("birth_date"))[:10])
+            except Exception:
+                cur_birth = date(2021, 1, 1)
+
             with st.form("edit_child"):
-                c3, c4, c5 = st.columns(3)
-                e_class = c3.selectbox("반", class_opts,
+                c1, c2, c3 = st.columns(3)
+                e_name = c1.text_input("이름 *", value=row.get("name") or "")
+                e_gender = c2.selectbox("성별", gender_opts,
+                                        index=gender_opts.index(cur_gender) if cur_gender in gender_opts else 0)
+                e_birth = c3.date_input("생년월일", value=cur_birth,
+                                        min_value=date(2015, 1, 1), max_value=date.today())
+                c4, c5 = st.columns(2)
+                e_gname = c4.text_input("보호자 이름", value=s_or_empty(row.get("guardian_name")))
+                e_phone = c5.text_input("보호자 연락처", value=s_or_empty(row.get("guardian_phone")))
+                c6, c7, c8 = st.columns(3)
+                e_class = c6.selectbox("반", class_opts,
                                        index=class_opts.index(cur_class) if cur_class in class_opts else 0)
-                e_part = c4.selectbox("부", part_opts,
+                e_part = c7.selectbox("부", part_opts,
                                       index=part_opts.index(cur_part) if cur_part in part_opts else 0)
-                e_no = c5.selectbox("반 번호", no_opts,
+                e_no = c8.selectbox("반 번호", no_opts,
                                     index=no_opts.index(cur_no) if cur_no in no_opts else 0,
                                     format_func=lambda x: x if x == NONE else f"{x}반")
-                e_phone = st.text_input("보호자 연락처", value=row.get("guardian_phone") or "")
-                e_allergy = st.text_input("알레르기", value=row.get("allergy") or "")
-                e_notes = st.text_area("특이사항", value=row.get("notes") or "")
+                e_allergy = st.text_input("알레르기", value=s_or_empty(row.get("allergy")))
+                e_notes = st.text_area("특이사항", value=s_or_empty(row.get("notes")))
                 e_photo = st.file_uploader("사진 변경 (선택)", type=["jpg", "jpeg", "png", "webp"],
                                            key=f"e_photo_{row['id']}")
                 del_photo = st.checkbox("현재 사진 삭제") if old_path else False
                 e_active = st.checkbox("재적 중 (해제 시 퇴원 처리)", value=bool(row["is_active"]))
                 if st.form_submit_button("저장", use_container_width=True):
-                    if too_big(e_photo):
+                    if not e_name.strip():
+                        st.error("이름은 필수입니다.")
+                    elif too_big(e_photo):
                         st.error(f"사진은 {MAX_UPLOAD_MB}MB 이하만 올릴 수 있습니다.")
                     else:
                         cls = None if e_class == NONE else e_class
                         data = {
+                            "name": e_name.strip(), "gender": e_gender or None,
+                            "birth_date": e_birth.isoformat(),
+                            "guardian_name": e_gname or None, "guardian_phone": e_phone or None,
                             "class_name": cls,
                             "service_part": None if e_part == NONE else e_part,
                             "class_no": None if e_no == NONE else int(e_no),
-                            "guardian_phone": e_phone or None,
                             "allergy": e_allergy or None, "notes": e_notes or None,
                             "is_active": e_active,
                         }
                         if (cls or "").startswith("새싹"):
                             data["is_new_family"] = True
-                        msg = f"{row['name']} 정보를 저장했습니다."
+                        msg = f"{e_name.strip()} 정보를 저장했습니다."
                         if e_photo is not None:
                             try:
                                 data["photo_path"] = upload_photo(
@@ -229,6 +253,7 @@ if manage:
                         st.session_state["flash"] = msg
                         st.rerun()
 
+    # ------------------------------------------------------------ 완전 삭제
     with tab_del:
         st.subheader("아동 완전 삭제")
         st.warning(
