@@ -52,7 +52,7 @@ if not ev.empty:
 children = fetch("children")
 teachers = fetch("teachers")
 for df_ in (children, teachers):
-    for col in ("service_part", "class_no"):
+    for col in ("service_part", "class_no", "birth_date"):
         if not df_.empty and col not in df_.columns:
             df_[col] = None
 show_children = SHOW_CHILD_BIRTHDAY_TO_ALL or is_admin
@@ -183,47 +183,61 @@ else:
         st.session_state["last_click_id"] = click_id
         show_day(clicked_iso)
 
-# ---------- 다가오는 생일 (달력 아래) ----------
+# ---------- 다가오는 생일 (달력 아래, 항상 표시) ----------
+st.subheader("🎂 다가오는 생일")
+st.caption(f"오늘부터 {UPCOMING_DAYS}일 이내 생일입니다.")
+
 soon = upcoming(people_all, today, days=UPCOMING_DAYS)
-if soon:
-    st.subheader("🎂 다가오는 생일")
+kids = [p for p in soon if p["kind"] == "아동"]
+teas = [p for p in soon if p["kind"] == "교사"]
 
 
-    def bday_rows(items):
-        out = []
-        for p in items:
-            d = p["date"]
-            left = (d - today).days
-            if left == 0:
-                badge = "오늘 🎉"
-            elif left == 1:
-                badge = "내일"
-            else:
-                badge = f"D-{left}"
-            sub = p["cls"] if p["kind"] == "아동" else "선생님"
-            out.append(
-                "<div style='display:flex;align-items:baseline;gap:.6rem;padding:.5rem .2rem;"
-                "border-bottom:1px solid rgba(128,128,128,.18);line-height:1.35'>"
-                f"<span style='flex:0 0 5.6rem;font-weight:700;color:#3b5f85'>"
-                f"{d.month}/{d.day}({'월화수목금토일'[d.weekday()]})</span>"
-                f"<span style='flex:1;min-width:0'><b>{html.escape(str(p['name']))}</b>"
-                f"<span style='font-size:.85rem;color:#8a97a8'> · {html.escape(sub)}</span></span>"
-                f"<span style='font-size:.78rem;padding:.05rem .55rem;border-radius:999px;"
-                f"background:#fff3bf;color:#5c4a00;white-space:nowrap'>{html.escape(badge)}</span>"
-                "</div>")
-        return "".join(out)
+def bday_rows(items):
+    out = []
+    for p in items:
+        d = p["date"]
+        left = (d - today).days
+        if left == 0:
+            badge = "오늘 🎉"
+        elif left == 1:
+            badge = "내일"
+        else:
+            badge = f"D-{left}"
+        sub = p["cls"] if p["kind"] == "아동" else "선생님"
+        out.append(
+            "<div style='display:flex;align-items:baseline;gap:.6rem;padding:.5rem .2rem;"
+            "border-bottom:1px solid rgba(128,128,128,.18);line-height:1.35'>"
+            f"<span style='flex:0 0 5.6rem;font-weight:700;color:#3b5f85'>"
+            f"{d.month}/{d.day}({'월화수목금토일'[d.weekday()]})</span>"
+            f"<span style='flex:1;min-width:0'><b>{html.escape(str(p['name']))}</b>"
+            f"<span style='font-size:.85rem;color:#8a97a8'> · {html.escape(sub)}</span></span>"
+            f"<span style='font-size:.78rem;padding:.05rem .55rem;border-radius:999px;"
+            f"background:#fff3bf;color:#5c4a00;white-space:nowrap'>{html.escape(badge)}</span>"
+            "</div>")
+    return "".join(out)
 
-    kids = [p for p in soon if p["kind"] == "아동"]
-    teas = [p for p in soon if p["kind"] == "교사"]
-    tabs = []
-    if kids:
-        tabs.append(("아동", kids))
-    if teas:
-        tabs.append(("교사", teas))
-    if len(tabs) == 1:
-        st.markdown(bday_rows(tabs[0][1]), unsafe_allow_html=True)
+
+def count_with_birth(df):
+    if df is None or df.empty or "birth_date" not in df.columns:
+        return 0
+    return int(pd.to_datetime(df["birth_date"], errors="coerce").notna().sum())
+
+
+t_kids, t_teas = st.tabs([f"아동 ({len(kids)})", f"교사 ({len(teas)})"])
+
+with t_kids:
+    if not show_children:
+        st.info("아동 생일은 관리자 로그인 후 볼 수 있습니다.")
+    elif kids:
+        st.markdown(bday_rows(kids), unsafe_allow_html=True)
     else:
-        t_objs = st.tabs([f"{name} ({len(items)})" for name, items in tabs])
-        for t_obj, (_, items) in zip(t_objs, tabs):
-            with t_obj:
-                st.markdown(bday_rows(items), unsafe_allow_html=True)
+        st.write(f"{UPCOMING_DAYS}일 이내 생일인 아동이 없습니다.")
+        st.caption(f"생년월일이 입력된 아동: {count_with_birth(children)}명")
+
+with t_teas:
+    if teas:
+        st.markdown(bday_rows(teas), unsafe_allow_html=True)
+    else:
+        st.write(f"{UPCOMING_DAYS}일 이내 생일인 교사가 없습니다.")
+        st.caption(f"생년월일이 입력된 교사: {count_with_birth(teachers)}명 "
+                   "(교사 생년월일은 '교사·반 명단 → 수정'에서 입력)")
