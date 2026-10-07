@@ -4,6 +4,7 @@ from utils.auth import can_manage, can_see_contact
 from utils.db import (fetch, insert, update, delete,
                       process_image, upload_photo, remove_photo, photo_url)
 from utils.labels import class_label
+from utils.phone import format_phone
 from utils.ui import child_cards
 
 # 교사(일반)에게 보호자 이름·연락처를 보여줄지 (False = 가림)
@@ -128,7 +129,8 @@ if manage:
                                   min_value=date(2015, 1, 1), max_value=date.today())
             c4, c5 = st.columns(2)
             g_name = c4.text_input("보호자 이름")
-            g_phone = c5.text_input("보호자 연락처")
+            g_phone = c5.text_input("보호자 연락처",
+                                    placeholder="숫자만 입력해도 010-1234-5678로 저장됩니다")
             c6, c7, c8 = st.columns(3)
             class_pick = c6.selectbox("반", [NONE] + CLASSES)
             part_pick = c7.selectbox("부", [NONE] + PARTS)
@@ -150,7 +152,7 @@ if manage:
                         "gender": gender or None, "class_name": cls,
                         "service_part": None if part_pick == NONE else part_pick,
                         "class_no": None if no_pick == NONE else int(no_pick),
-                        "guardian_name": g_name or None, "guardian_phone": g_phone or None,
+                        "guardian_name": g_name or None, "guardian_phone": format_phone(g_phone),
                         "allergy": allergy or None, "notes": notes or None,
                         "is_new_family": bool(new_family or (cls or "").startswith("새싹")),
                     })
@@ -230,7 +232,7 @@ if manage:
                         data = {
                             "name": e_name.strip(), "gender": e_gender or None,
                             "birth_date": e_birth.isoformat(),
-                            "guardian_name": e_gname or None, "guardian_phone": e_phone or None,
+                            "guardian_name": e_gname or None, "guardian_phone": format_phone(e_phone),
                             "class_name": cls,
                             "service_part": None if e_part == NONE else e_part,
                             "class_no": None if e_no == NONE else int(e_no),
