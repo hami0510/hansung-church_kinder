@@ -2,6 +2,7 @@ import streamlit as st
 from utils.auth import can_manage, can_see_contact
 from utils.db import fetch, insert, update, delete
 from utils.labels import class_label
+from utils.phone import format_phone
 
 CLASSES = ["조이(5세)", "해피(6세)", "홀리(7세)", "새싹(새가족)"]
 PARTS = ["1부", "2부", "1·2부 모두"]
@@ -27,6 +28,7 @@ def to_no(v):
         return None
 
 
+# ---------------------------------------------------------------- 명단
 with tabs[0]:
     df = fetch("teachers", "name")
     if df.empty:
@@ -72,11 +74,12 @@ with tabs[0]:
         st.caption(f"총 {len(df)}명")
 
 if manage:
+    # ------------------------------------------------------------ 등록
     with tabs[1]:
         with st.form("add_teacher", clear_on_submit=True):
             c1, c2 = st.columns(2)
             name = c1.text_input("이름 *")
-            phone = c2.text_input("연락처")
+            phone = c2.text_input("연락처", placeholder="숫자만 입력해도 010-1234-5678로 저장됩니다")
             c3, c4, c5 = st.columns(3)
             cls = c3.selectbox("담당 반", [NONE] + CLASSES)
             part = c4.selectbox("부", [NONE] + PARTS)
@@ -89,7 +92,7 @@ if manage:
                     st.error("이름은 필수입니다.")
                 else:
                     insert("teachers", {
-                        "name": name.strip(), "phone": phone or None,
+                        "name": name.strip(), "phone": format_phone(phone),
                         "class_name": None if cls == NONE else cls,
                         "service_part": None if part == NONE else part,
                         "class_no": None if no == NONE else int(no),
@@ -97,6 +100,7 @@ if manage:
                     st.session_state["flash"] = f"{name.strip()} 선생님 등록 완료"
                     st.rerun()
 
+    # ------------------------------------------------------------ 수정/삭제
     with tabs[2]:
         df_e = fetch("teachers", "name")
         if df_e.empty:
@@ -134,7 +138,7 @@ if manage:
                                        value=bool(row["is_active"]))
                 if st.form_submit_button("저장", use_container_width=True):
                     update("teachers", row["id"], {
-                        "phone": e_phone or None,
+                        "phone": format_phone(e_phone),
                         "class_name": None if e_cls == NONE else e_cls,
                         "service_part": None if e_part == NONE else e_part,
                         "class_no": None if e_no == NONE else int(e_no),
