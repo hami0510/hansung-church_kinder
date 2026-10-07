@@ -149,14 +149,9 @@ st.subheader("🗓️ 월간 일정")
 if st_calendar is None:
     st.warning("달력을 불러오지 못했습니다. requirements.txt에 streamlit-calendar가 있는지 확인해 주세요.")
 else:
-    # 팝업을 닫은 뒤 같은 날을 다시 눌러도 열리도록, 달력 key를 바꿔 클릭 기록을 초기화
-    n = st.session_state.get("cal_reset", 0)
-    # 보던 달 유지: 마지막으로 클릭한 날짜의 달을 시작 위치로 사용
-    start_date = st.session_state.get("cal_last_date", today.isoformat())
-
     options = {
         "initialView": "dayGridMonth",
-        "initialDate": start_date,
+        "initialDate": today.isoformat(),
         "locale": "ko",
         "firstDay": 0,
         "height": 650,
@@ -180,18 +175,23 @@ else:
         .fc-event-title {overflow: hidden; text-overflow: ellipsis;}
         .fc-button-primary {background: #4a9fe0 !important; border-color: #4a9fe0 !important;}
     """
+    # key를 고정해서 달력이 다시 만들어지지 않게 함 (깜빡임·달 초기화 방지)
     state = st_calendar(events=cal_events, options=options, custom_css=custom_css,
-                        callbacks=["dateClick", "eventClick"], key=f"cal_{n}")
+                        callbacks=["dateClick", "eventClick"], key="home_cal")
 
-    clicked_iso = None
+    clicked_iso, click_id = None, None
     if state:
         if state.get("dateClick"):
-            clicked_iso = str(state["dateClick"]["date"])[:10]
+            dc = state["dateClick"]
+            clicked_iso = str(dc.get("date", ""))[:10] or None
+            click_id = ("d", str(dc.get("date")), str(dc.get("timeStamp", "")))
         elif state.get("eventClick"):
-            start = str(state["eventClick"]["event"].get("start", ""))
+            ec = state["eventClick"]
+            start = str(ec.get("event", {}).get("start", ""))
             clicked_iso = start[:10] or None
+            click_id = ("e", str(ec.get("event", {}).get("id", "")), str(ec.get("timeStamp", "")))
 
-    if clicked_iso:
-        st.session_state["cal_last_date"] = clicked_iso  # 팝업 후에도 이 달을 유지
-        st.session_state["cal_reset"] = n + 1            # 다음 실행에서 클릭 기록 초기화
+    # 새로운 클릭일 때만 팝업을 연다 (이미 처리한 클릭은 무시)
+    if clicked_iso and click_id != st.session_state.get("last_click_id"):
+        st.session_state["last_click_id"] = click_id
         show_day(clicked_iso)
