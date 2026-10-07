@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 from utils.db import fetch, insert, update
 from utils.labels import class_label
-from utils.pick import search_pick
+from utils.pick import search_one
 
 KST = ZoneInfo("Asia/Seoul")
 STATUS = ["출석", "불참", "미정"]
@@ -42,7 +42,7 @@ teachers = fetch("teachers", "name")
 if teachers.empty:
     st.warning("먼저 '교사 · 반 명단'에서 교사를 등록해 주세요.")
     st.stop()
-for col in ["service_part", "class_no"]:
+for col in ["service_part", "class_no", "role_title"]:
     if col not in teachers.columns:
         teachers[col] = None
 teachers = teachers[teachers["is_active"] == True]
@@ -51,10 +51,10 @@ tab_in, tab_sum = st.tabs(["내 출석 보고", "제출 현황"])
 
 # ---------------------------------------------------------------- 내 출석 보고
 with tab_in:
-    tid = search_pick(teachers, "선생님", key="sr")
+    tid = search_one(teachers, "선생님", key="sr")
 
     if tid is None:
-        st.info("선생님을 선택하면 출석 보고를 입력할 수 있습니다.")
+        st.info("검색해서 선생님이 한 명으로 정해지면 출석 보고를 입력할 수 있습니다.")
     else:
         rep = fetch("sunday_reports")
         mine = None
