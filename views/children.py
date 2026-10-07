@@ -1,6 +1,6 @@
 from datetime import date
 import streamlit as st
-from utils.auth import can_manage, can_see_contact
+from utils.auth import can_manage_roster as can_manage, can_see_contact
 from utils.db import (fetch, insert, update, delete,
                       process_image, upload_photo, remove_photo, photo_url)
 from utils.labels import class_label
