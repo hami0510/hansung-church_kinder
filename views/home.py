@@ -75,7 +75,6 @@ if week:
     st.markdown("".join(cards), unsafe_allow_html=True)
 
 # ---------- 달력용 데이터 ----------
-# 일정 칩 + 생일 칩 (생일은 앞뒤 해를 포함해 3개 연도 분량 생성)
 cal_events = []
 day_events = {}  # "YYYY-MM-DD" -> 일정 행 목록 (팝업용)
 if not ev.empty:
@@ -152,8 +151,12 @@ if st_calendar is None:
 else:
     # 팝업을 닫은 뒤 같은 날을 다시 눌러도 열리도록, 달력 key를 바꿔 클릭 기록을 초기화
     n = st.session_state.get("cal_reset", 0)
+    # 보던 달 유지: 마지막으로 클릭한 날짜의 달을 시작 위치로 사용
+    start_date = st.session_state.get("cal_last_date", today.isoformat())
+
     options = {
         "initialView": "dayGridMonth",
+        "initialDate": start_date,
         "locale": "ko",
         "firstDay": 0,
         "height": 650,
@@ -162,7 +165,7 @@ else:
         "moreLinkText": "개 더보기",
         "headerToolbar": {"left": "prev,next today", "center": "title", "right": ""},
         "buttonText": {"today": "오늘"},
-        "dayCellClassNames": [],
+        "eventTimeFormat": {"hour": "2-digit", "minute": "2-digit", "hour12": False},
     }
     custom_css = """
         .fc-toolbar-title {font-size: 1.3rem !important; font-weight: 700;}
@@ -173,6 +176,8 @@ else:
         .fc-daygrid-day-number {text-decoration: none; font-weight: 700;}
         .fc-day-today {background: #fff3bf !important;}
         .fc-event {cursor: pointer; border-radius: 8px; padding: 0 3px; font-size: 0.78rem;}
+        .fc-event-time {font-weight: 400; margin-right: 3px;}
+        .fc-event-title {overflow: hidden; text-overflow: ellipsis;}
         .fc-button-primary {background: #4a9fe0 !important; border-color: #4a9fe0 !important;}
     """
     state = st_calendar(events=cal_events, options=options, custom_css=custom_css,
@@ -187,5 +192,6 @@ else:
             clicked_iso = start[:10] or None
 
     if clicked_iso:
-        st.session_state["cal_reset"] = n + 1  # 다음 실행에서 클릭 기록 초기화
+        st.session_state["cal_last_date"] = clicked_iso  # 팝업 후에도 이 달을 유지
+        st.session_state["cal_reset"] = n + 1            # 다음 실행에서 클릭 기록 초기화
         show_day(clicked_iso)
