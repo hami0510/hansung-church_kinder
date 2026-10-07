@@ -39,7 +39,7 @@ with st.sidebar:
             st.session_state["fails"] = 0
             st.rerun()
     else:
-        st.caption("접속 권한: 일반 (조회 전용)")
+        st.caption("접속 권한: 일반 (아동·교사 명부 수정은 관리자 로그인 필요)")
         with st.expander("🔒 관리자 로그인"):
             if st.session_state["fails"] >= MAX_FAILS:
                 st.error("시도 횟수를 초과했습니다. 페이지를 새로고침한 뒤 다시 시도하세요.")
