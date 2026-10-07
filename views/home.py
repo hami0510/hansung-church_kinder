@@ -1,12 +1,12 @@
+from utils.ui import event_cards, hero
 import calendar
 import html
 from datetime import date
 import pandas as pd
 import streamlit as st
 from utils.db import fetch
-from utils.ui import event_cards
 
-st.title("🏠 유치부 홈")
+hero()
 
 today = date.today()
 
