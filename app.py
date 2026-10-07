@@ -17,9 +17,11 @@ role = st.session_state["role"]
 home = st.Page("views/home.py", title="홈", icon="🏠", default=True)
 events = st.Page("views/events.py", title="일정 관리", icon="📅")
 children = st.Page("views/children.py", title="아동 명부", icon="🧒")
+teachers = st.Page("views/teachers.py", title="교사·반 명단", icon="👩‍🏫")
+sunday_report = st.Page("views/sunday_report.py", title="주일 출석 보고", icon="📝")
 
 # 모든 방문자에게 같은 메뉴 (등록·수정·삭제는 각 화면에서 관리자만)
-pages = {"메뉴": [home, events, children]}
+pages = {"메뉴": [home, events, children, teachers, sunday_report]}
 
 with st.sidebar:
     if role == "admin":
