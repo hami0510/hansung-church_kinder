@@ -6,7 +6,6 @@ from utils.db import fetch, insert, update, delete
 st.title("📅 일정 관리")
 
 CATEGORIES = ["예배", "행사", "교사회의", "교육", "심방", "기타"]
-DOT = {"예배": "🟣", "행사": "🟠", "교사회의": "🟤", "교육": "🟢", "심방": "🔵", "기타": "⚪"}
 WD = "월화수목금토일"
 
 
@@ -79,6 +78,7 @@ def edit_dialog(eid: str):
                 "description": e_desc or None,
             })
             st.session_state["flash"] = f"'{e_title.strip()}' 일정을 수정했습니다."
+            st.session_state["ev_table_ver"] = st.session_state.get("ev_table_ver", 0) + 1
             st.rerun()
 
     st.divider()
@@ -86,6 +86,7 @@ def edit_dialog(eid: str):
     if st.button("🗑️ 삭제", disabled=not ok, key=f"del_btn_{eid}", use_container_width=True):
         delete("events", row["id"])
         st.session_state["flash"] = "일정을 삭제했습니다."
+        st.session_state["ev_table_ver"] = st.session_state.get("ev_table_ver", 0) + 1
         st.rerun()
 
 
@@ -116,22 +117,26 @@ with tab_list:
         if ev.empty:
             st.info("표시할 일정이 없습니다.")
         else:
-            ev = ev.assign(_k=ev["time_str"].replace("", "99:99")).sort_values(["event_date", "_k"])
+            ev = ev.assign(_k=ev["time_str"].replace("", "99:99")).sort_values(
+                ["event_date", "_k"]).reset_index(drop=True)
+            view = pd.DataFrame({
+                "날짜": ev["event_date"].apply(lambda d: f"{d.month}/{d.day}({WD[d.weekday()]})"),
+                "시간": ev["time_str"].replace("", "종일"),
+                "제목": ev["title"],
+                "구분": ev["category"].fillna(""),
+                "장소": ev["location"].fillna(""),
+            })
             st.caption("일정을 누르면 수정·삭제할 수 있습니다.")
-            with st.container(key="evlist"):
-                for d, grp in ev.groupby("event_date", sort=True):
-                    cls = "sun" if d.weekday() == 6 else ("sat" if d.weekday() == 5 else "")
-                    cls += " today" if d == today else ""
-                    st.markdown(
-                        f"<div class='evday {cls}'>{d.month}월 {d.day}일 ({WD[d.weekday()]})"
-                        f"{' · 오늘' if d == today else ''}</div>", unsafe_allow_html=True)
-                    for _, r in grp.iterrows():
-                        t = r["time_str"] or "종일"
-                        dot = DOT.get(s_or_empty(r.get("category")), "⚪")
-                        loc = s_or_empty(r.get("location"))
-                        text = f"{dot}  {t}   {r['title']}" + (f"   ·   📍{loc}" if loc else "")
-                        if st.button(text, key=f"ev_{r['id']}", use_container_width=True):
-                            edit_dialog(str(r["id"]))
+            ver = st.session_state.get("ev_table_ver", 0)
+            sel = st.dataframe(view, hide_index=True, use_container_width=True,
+                               on_select="rerun", selection_mode="single-row",
+                               key=f"ev_table_{ver}")
+            rows = sel.selection.rows if sel and sel.selection else []
+            if rows:
+                eid = str(ev.iloc[rows[0]]["id"])
+                # 팝업을 닫은 뒤 같은 행을 다시 눌러도 열리도록 표를 새로 만든다
+                st.session_state["ev_table_ver"] = ver + 1
+                edit_dialog(eid)
 
 # ---------------------------------------------------------------- 일정 등록
 with tab_add:
