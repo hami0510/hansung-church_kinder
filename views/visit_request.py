@@ -3,14 +3,12 @@ import pandas as pd
 import streamlit as st
 from utils.auth import can_manage, can_view_requests
 from utils.db import fetch, insert, update, delete
-from utils.labels import class_label
 from utils.notify import notify
-from utils.pick import search_pick
+from utils.pick import search_one
 
 REASONS = ["결석이 이어짐", "아픔·건강", "가정 사정", "새가족 방문", "축하·격려", "기타"]
 STATUS = ["접수", "예정", "완료"]
 ICON = {"접수": "🆕", "예정": "📅", "완료": "✅"}
-NONE = "해당 없음"
 
 st.title("🏠 심방 요청")
 
@@ -25,7 +23,7 @@ children = fetch("children", "name")
 if teachers.empty:
     st.warning("먼저 '교사 · 반 명단'에서 교사를 등록해 주세요.")
     st.stop()
-for col in ["service_part", "class_no"]:
+for col in ["service_part", "class_no", "role_title"]:
     if col not in teachers.columns:
         teachers[col] = None
     if not children.empty and col not in children.columns:
@@ -38,30 +36,36 @@ tabs = st.tabs(["요청하기"] + (["요청 목록"] if view_list else []))
 
 # ---------------------------------------------------------------- 요청하기
 with tabs[0]:
-    teacher_id = search_pick(teachers, "요청하는 선생님", key="vr_t")
+    teacher_id = search_one(teachers, "요청하는 선생님", key="vr_t")
+
     if children.empty:
         child_id = None
+        child_unclear = False
     else:
-        child_id = search_pick(children, "대상 아동", key="vr_c", none_option=NONE)
+        child_id = search_one(children, "대상 아동", key="vr_c", kind="child", optional=True)
+        child_unclear = st.session_state.get("vr_c_ambiguous", False)
 
-    with st.form("visit_form", clear_on_submit=True):
-        reason = st.selectbox("사유", REASONS)
-        use_date = st.checkbox("희망 날짜 지정")
-        want = st.date_input("희망 날짜", value=date.today())
-        memo = st.text_area("메모 (상황을 간단히)")
-        if st.form_submit_button("심방 요청 보내기", use_container_width=True):
-            if teacher_id is None:
-                st.error("요청하는 선생님을 선택해 주세요.")
-                st.stop()
-            insert("visit_requests", {
-                "teacher_id": teacher_id, "child_id": child_id,
-                "reason": reason,
-                "desired_date": want.isoformat() if use_date else None,
-                "memo": memo or None,
-            })
-            notify("visit", "새 심방 요청이 접수되었습니다.")
-            st.session_state["flash"] = "심방 요청이 접수되었습니다."
-            st.rerun()
+    if teacher_id is None:
+        st.info("검색해서 선생님이 한 명으로 정해지면 요청을 보낼 수 있습니다.")
+    else:
+        with st.form("visit_form", clear_on_submit=True):
+            reason = st.selectbox("사유", REASONS)
+            use_date = st.checkbox("희망 날짜 지정")
+            want = st.date_input("희망 날짜", value=date.today())
+            memo = st.text_area("메모 (상황을 간단히)")
+            if st.form_submit_button("심방 요청 보내기", use_container_width=True):
+                if child_unclear:
+                    st.error("대상 아동이 한 명으로 정해지지 않았습니다. 검색어를 고치거나 비워 주세요.")
+                else:
+                    insert("visit_requests", {
+                        "teacher_id": teacher_id, "child_id": child_id,
+                        "reason": reason,
+                        "desired_date": want.isoformat() if use_date else None,
+                        "memo": memo or None,
+                    })
+                    notify("visit", "새 심방 요청이 접수되었습니다.")
+                    st.session_state["flash"] = "심방 요청이 접수되었습니다."
+                    st.rerun()
 
 # ---------------------------------------------------------------- 요청 목록
 if view_list:
