@@ -5,6 +5,7 @@ from utils.auth import can_manage, can_view_requests
 from utils.db import fetch, insert, update, delete
 from utils.labels import class_label
 from utils.notify import notify
+from utils.pick import search_pick
 
 REASONS = ["결석이 이어짐", "아픔·건강", "가정 사정", "새가족 방문", "축하·격려", "기타"]
 STATUS = ["접수", "예정", "완료"]
@@ -35,22 +36,25 @@ if not children.empty:
 
 tabs = st.tabs(["요청하기"] + (["요청 목록"] if view_list else []))
 
+# ---------------------------------------------------------------- 요청하기
 with tabs[0]:
-    t_opts = {f"{r['name']} ({class_label(r)})": r["id"] for _, r in teachers.iterrows()}
-    c_opts = {NONE: None}
-    if not children.empty:
-        c_opts.update({f"{r['name']} ({class_label(r)})": r["id"] for _, r in children.iterrows()})
+    teacher_id = search_pick(teachers, "요청하는 선생님", key="vr_t")
+    if children.empty:
+        child_id = None
+    else:
+        child_id = search_pick(children, "대상 아동", key="vr_c", none_option=NONE)
 
     with st.form("visit_form", clear_on_submit=True):
-        me = st.selectbox("요청하는 선생님", list(t_opts))
-        child = st.selectbox("대상 아동", list(c_opts))
         reason = st.selectbox("사유", REASONS)
         use_date = st.checkbox("희망 날짜 지정")
         want = st.date_input("희망 날짜", value=date.today())
         memo = st.text_area("메모 (상황을 간단히)")
         if st.form_submit_button("심방 요청 보내기", use_container_width=True):
+            if teacher_id is None:
+                st.error("요청하는 선생님을 선택해 주세요.")
+                st.stop()
             insert("visit_requests", {
-                "teacher_id": t_opts[me], "child_id": c_opts[child],
+                "teacher_id": teacher_id, "child_id": child_id,
                 "reason": reason,
                 "desired_date": want.isoformat() if use_date else None,
                 "memo": memo or None,
@@ -59,6 +63,7 @@ with tabs[0]:
             st.session_state["flash"] = "심방 요청이 접수되었습니다."
             st.rerun()
 
+# ---------------------------------------------------------------- 요청 목록
 if view_list:
     with tabs[1]:
         req = fetch("visit_requests", "created_at", desc=True)
