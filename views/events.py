@@ -2,6 +2,7 @@ from datetime import date, time
 import pandas as pd
 import streamlit as st
 from utils.db import fetch, insert, delete
+from utils.ui import event_cards
 
 st.title("📅 일정 관리")
 is_admin = st.session_state.get("role") == "admin"
@@ -29,9 +30,11 @@ def prepare(df):
 if "flash" in st.session_state:
     st.success(st.session_state.pop("flash"))
 
-tab_names = ["일정 보기", "일정 등록"] + (["일정 삭제"] if is_admin else [])
-tabs = st.tabs(tab_names)
-tab_list, tab_add = tabs[0], tabs[1]
+if is_admin:
+    tab_list, tab_add, tab_del = st.tabs(["일정 보기", "일정 등록", "일정 삭제"])
+else:
+    tab_list = st.tabs(["일정 보기"])[0]
+    st.caption("🔒 일정 등록·삭제는 관리자 로그인 후 가능합니다. (왼쪽 위 ≫ 메뉴에서 로그인)")
 
 with tab_list:
     ev = fetch("events", "event_date")
@@ -45,46 +48,39 @@ with tab_list:
         if ev.empty:
             st.info("표시할 일정이 없습니다.")
         else:
-            # 날짜 → 시간순 (시간 없는 일정은 그날의 맨 뒤)
             ev = ev.assign(_k=ev["time_str"].replace("", "99:99")).sort_values(["event_date", "_k"])
-            st.dataframe(
-                ev[["event_date", "time_str", "title", "category", "location", "description"]].rename(columns={
-                    "event_date": "날짜", "time_str": "시간", "title": "제목", "category": "구분",
-                    "location": "장소", "description": "내용"}),
-                hide_index=True, use_container_width=True,
-            )
-
-with tab_add:
-    title = st.text_input("제목 *", key="ev_title")
-    use_time = st.checkbox("시간 지정", key="ev_use_time")
-
-    c1, c2, c3 = st.columns(3)
-    d = c1.date_input("날짜", value=date.today(), key="ev_date")
-    t = c2.time_input("시간", value=time(10, 0), step=900,
-                      disabled=not use_time, key="ev_time")  # 15분 단위
-    cat = c3.selectbox("구분", CATEGORIES, key="ev_cat")
-
-    loc = st.text_input("장소", key="ev_loc")
-    desc = st.text_area("내용", key="ev_desc")
-
-    if st.button("등록", key="ev_submit"):
-        if not title.strip():
-            st.error("제목은 필수입니다.")
-        else:
-            insert("events", {
-                "title": title.strip(), "event_date": d.isoformat(),
-                "event_time": t.strftime("%H:%M") if use_time else None,
-                "category": cat, "location": loc or None, "description": desc or None,
-                "created_by": "관리자" if is_admin else "교사",
-            })
-            # 입력칸 비우기
-            for k in ["ev_title", "ev_use_time", "ev_loc", "ev_desc"]:
-                st.session_state.pop(k, None)
-            st.session_state["flash"] = "일정이 등록되었습니다."
-            st.rerun()
+            event_cards(ev)
 
 if is_admin:
-    with tabs[2]:
+    with tab_add:
+        title = st.text_input("제목 *", key="ev_title")
+        use_time = st.checkbox("시간 지정", key="ev_use_time")
+
+        c1, c2, c3 = st.columns(3)
+        d = c1.date_input("날짜", value=date.today(), key="ev_date")
+        t = c2.time_input("시간", value=time(10, 0), step=900,
+                          disabled=not use_time, key="ev_time")  # 15분 단위
+        cat = c3.selectbox("구분", CATEGORIES, key="ev_cat")
+
+        loc = st.text_input("장소", key="ev_loc")
+        desc = st.text_area("내용", key="ev_desc")
+
+        if st.button("등록", key="ev_submit", use_container_width=True):
+            if not title.strip():
+                st.error("제목은 필수입니다.")
+            else:
+                insert("events", {
+                    "title": title.strip(), "event_date": d.isoformat(),
+                    "event_time": t.strftime("%H:%M") if use_time else None,
+                    "category": cat, "location": loc or None, "description": desc or None,
+                    "created_by": "관리자",
+                })
+                for k in ["ev_title", "ev_use_time", "ev_loc", "ev_desc"]:
+                    st.session_state.pop(k, None)
+                st.session_state["flash"] = "일정이 등록되었습니다."
+                st.rerun()
+
+    with tab_del:
         st.subheader("일정 삭제")
         ev_all = fetch("events", "event_date")
         if ev_all.empty:
@@ -101,7 +97,8 @@ if is_admin:
             if picked:
                 st.warning(f"선택한 {len(picked)}개 일정이 삭제됩니다. 되돌릴 수 없습니다.")
                 confirm = st.checkbox("삭제하는 것에 동의합니다", key="ev_del_confirm")
-                if st.button("선택한 일정 삭제", type="primary", disabled=not confirm):
+                if st.button("선택한 일정 삭제", type="primary", disabled=not confirm,
+                             use_container_width=True):
                     for label in picked:
                         delete("events", opts[label])
                     st.session_state["flash"] = f"{len(picked)}개 일정을 삭제했습니다."
