@@ -131,6 +131,27 @@ def _e(v):
     return html.escape(_s(v))
 
 
+def event_card_html(r, past=False):
+    """일정 한 장의 카드 HTML (r: event_date, time_str, title, category, location)"""
+    d = r["event_date"]
+    wd = "월화수목금토일"[d.weekday()]
+    when = f"{d.month}/{d.day}({wd})"
+    if _s(r.get("time_str")):
+        when += f" {_s(r.get('time_str'))}"
+    cat = _s(r.get("category"))
+    icon = CAT_ICON.get(cat, "⭐")
+    tag = f"<span class='ktag'>{html.escape(cat)}</span>" if cat else ""
+    loc = _s(r.get("location"))
+    cls = " past" if past else ""
+    return (
+        f"<div class='kcard{cls}'>"
+        f"<div class='kmuted'>{html.escape(when)}</div>"
+        f"<div class='ktop'>{icon} {_e(r.get('title'))}{tag}</div>"
+        + (f"<div class='ksub'>📍 {html.escape(loc)}</div>" if loc else "")
+        + "</div>"
+    )
+
+
 def event_cards(df):
     """df: event_date(date), time_str, title, category, location 열 필요"""
     if df is None or df.empty:
@@ -138,23 +159,7 @@ def event_cards(df):
     today = date.today()
     out = ["<div class='kcards'>"]
     for _, r in df.iterrows():
-        d = r["event_date"]
-        wd = "월화수목금토일"[d.weekday()]
-        when = f"{d.month}/{d.day}({wd})"
-        if _s(r.get("time_str")):
-            when += f" {_s(r.get('time_str'))}"
-        cat = _s(r.get("category"))
-        icon = CAT_ICON.get(cat, "⭐")
-        tag = f"<span class='ktag'>{html.escape(cat)}</span>" if cat else ""
-        loc = _s(r.get("location"))
-        past = " past" if d < today else ""
-        out.append(
-            f"<div class='kcard{past}'>"
-            f"<div class='kmuted'>{html.escape(when)}</div>"
-            f"<div class='ktop'>{icon} {_e(r.get('title'))}{tag}</div>"
-            + (f"<div class='ksub'>📍 {html.escape(loc)}</div>" if loc else "")
-            + "</div>"
-        )
+        out.append(event_card_html(r, past=r["event_date"] < today))
     out.append("</div>")
     st.markdown("".join(out), unsafe_allow_html=True)
 
@@ -195,22 +200,3 @@ def child_cards(df, show_contact=False, show_inactive_tag=False, show_photo=Fals
             out.append(f"<div class='kcard'>{body}</div>")
     out.append("</div>")
     st.markdown("".join(out), unsafe_allow_html=True)
-  def event_card_html(r, past=False):
-    """일정 한 장의 카드 HTML (r: event_date, time_str, title, category, location)"""
-    d = r["event_date"]
-    wd = "월화수목금토일"[d.weekday()]
-    when = f"{d.month}/{d.day}({wd})"
-    if _s(r.get("time_str")):
-        when += f" {_s(r.get('time_str'))}"
-    cat = _s(r.get("category"))
-    icon = CAT_ICON.get(cat, "⭐")
-    tag = f"<span class='ktag'>{html.escape(cat)}</span>" if cat else ""
-    loc = _s(r.get("location"))
-    cls = " past" if past else ""
-    return (
-        f"<div class='kcard{cls}'>"
-        f"<div class='kmuted'>{html.escape(when)}</div>"
-        f"<div class='ktop'>{icon} {_e(r.get('title'))}{tag}</div>"
-        + (f"<div class='ksub'>📍 {html.escape(loc)}</div>" if loc else "")
-        + "</div>"
-    )
