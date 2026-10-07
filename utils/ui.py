@@ -9,7 +9,13 @@ CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap');
 
-html, body, [class*="st-"], .stMarkdown, button, input, textarea {font-family: 'Gowun Dodum', sans-serif;}
+html, body, .stMarkdown, .stMarkdown p, label, button p, input, textarea,
+[data-testid="stSidebar"] p, [data-testid="stCaptionContainer"], [data-baseweb="tab"] p {
+  font-family: 'Gowun Dodum', sans-serif;
+}
+[data-testid="stIconMaterial"], span[class*="material"] {
+  font-family: 'Material Symbols Rounded', 'Material Icons' !important;
+}
 h1, h2, h3, .calhead, .hero-title {font-family: 'Jua', 'Gowun Dodum', sans-serif !important; letter-spacing: 0;}
 .block-container {padding-top: 2.5rem; padding-bottom: 3rem; max-width: 1100px;}
 
