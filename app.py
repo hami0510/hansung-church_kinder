@@ -21,9 +21,15 @@ teachers = st.Page("views/teachers.py", title="교사·반 명단", icon="👩�
 sunday_report = st.Page("views/sunday_report.py", title="주일 출석 보고", icon="📝")
 visit_request = st.Page("views/visit_request.py", title="심방 요청", icon="🏠")
 prayer_request = st.Page("views/prayer_request.py", title="기도제목 요청", icon="🙏")
+notices = st.Page("views/notices.py", title="공지사항", icon="📢")
+bulk_upload = st.Page("views/bulk_upload.py", title="엑셀 업로드", icon="📥")
+promotion = st.Page("views/promotion.py", title="반 이동·진급", icon="🎓")
 
 # 모든 방문자에게 같은 메뉴 (등록·수정·삭제는 각 화면에서 관리자만)
-pages = {"메뉴": [home, events, children, teachers, sunday_report, visit_request, prayer_request]}
+pages = {
+    "메뉴": [home, notices, events, children, teachers, sunday_report, visit_request, prayer_request],
+    "관리": [bulk_upload, promotion],
+}
 
 with st.sidebar:
     if role == "admin":
