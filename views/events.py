@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, time
 import pandas as pd
 import streamlit as st
 from utils.db import fetch, insert, delete
@@ -7,6 +7,23 @@ st.title("📅 일정 관리")
 is_admin = st.session_state.get("role") == "admin"
 
 CATEGORIES = ["예배", "행사", "교사회의", "교육", "심방", "기타"]
+
+
+def fmt_time(v):
+    """DB의 '10:00:00' → '10:00', 비어 있으면 ''"""
+    if v is None or pd.isna(v):
+        return ""
+    return str(v)[:5]
+
+
+def prepare(df):
+    df = df.copy()
+    df["event_date"] = pd.to_datetime(df["event_date"]).dt.date
+    if "event_time" not in df.columns:
+        df["event_time"] = None
+    df["time_str"] = df["event_time"].apply(fmt_time)
+    return df
+
 
 # 작업 완료 메시지 (rerun 후에도 보이도록 보관)
 if "flash" in st.session_state:
@@ -21,16 +38,18 @@ with tab_list:
     if ev.empty:
         st.info("등록된 일정이 없습니다.")
     else:
-        ev["event_date"] = pd.to_datetime(ev["event_date"]).dt.date
+        ev = prepare(ev)
         only_future = st.checkbox("지난 일정 숨기기", value=True)
         if only_future:
             ev = ev[ev["event_date"] >= date.today()]
         if ev.empty:
             st.info("표시할 일정이 없습니다.")
         else:
+            # 날짜 → 시간순 (시간 없는 일정은 그날의 맨 뒤)
+            ev = ev.assign(_k=ev["time_str"].replace("", "99:99")).sort_values(["event_date", "_k"])
             st.dataframe(
-                ev[["event_date", "title", "category", "location", "description"]].rename(columns={
-                    "event_date": "날짜", "title": "제목", "category": "구분",
+                ev[["event_date", "time_str", "title", "category", "location", "description"]].rename(columns={
+                    "event_date": "날짜", "time_str": "시간", "title": "제목", "category": "구분",
                     "location": "장소", "description": "내용"}),
                 hide_index=True, use_container_width=True,
             )
@@ -38,17 +57,21 @@ with tab_list:
 with tab_add:
     with st.form("add_event", clear_on_submit=True):
         title = st.text_input("제목 *")
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns([2, 1, 2])
         d = c1.date_input("날짜", value=date.today())
-        cat = c2.selectbox("구분", CATEGORIES)
+        use_time = c2.checkbox("시간 지정")
+        t = c2.time_input("시간", value=time(10, 0), step=900)  # 15분 단위
+        cat = c3.selectbox("구분", CATEGORIES)
         loc = st.text_input("장소")
         desc = st.text_area("내용")
+        st.caption("시간이 필요 없으면 '시간 지정'을 체크하지 않으면 됩니다.")
         if st.form_submit_button("등록"):
             if not title.strip():
                 st.error("제목은 필수입니다.")
             else:
                 insert("events", {
                     "title": title.strip(), "event_date": d.isoformat(),
+                    "event_time": t.strftime("%H:%M") if use_time else None,
                     "category": cat, "location": loc or None, "description": desc or None,
                     "created_by": "관리자" if is_admin else "교사",
                 })
@@ -62,10 +85,11 @@ if is_admin:
         if ev_all.empty:
             st.info("삭제할 일정이 없습니다.")
         else:
-            ev_all["event_date"] = pd.to_datetime(ev_all["event_date"]).dt.date
-            ev_all = ev_all.sort_values("event_date", ascending=False)
+            ev_all = prepare(ev_all)
+            ev_all = ev_all.assign(_k=ev_all["time_str"].replace("", "99:99")).sort_values(
+                ["event_date", "_k"], ascending=False)
             opts = {
-                f"{r['event_date']} · {r['title']} ({r.get('category') or '구분 없음'})": r["id"]
+                f"{r['event_date']} {r['time_str']} · {r['title']} ({r.get('category') or '구분 없음'})".replace("  ", " "): r["id"]
                 for _, r in ev_all.iterrows()
             }
             picked = st.multiselect("삭제할 일정 선택 (여러 개 가능)", list(opts))
