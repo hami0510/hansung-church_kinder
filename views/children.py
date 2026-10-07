@@ -1,6 +1,7 @@
 from datetime import date
 import streamlit as st
 from utils.db import fetch, insert, update, delete
+from utils.ui import child_cards
 
 # 교사(일반)에게 보호자 이름·연락처를 보여줄지 (False = 가림)
 TEACHER_SEE_CONTACT = False
@@ -15,11 +16,11 @@ if "flash" in st.session_state:
 
 if is_admin:
     tab_list, tab_add, tab_edit, tab_del = st.tabs(
-        ["명단 보기", "신규 등록", "수정/퇴원 처리", "완전 삭제"]
+        ["명단", "신규 등록", "수정/퇴원", "완전 삭제"]
     )
 else:
     tab_list = st.tabs(["명단 보기"])[0]
-    st.caption("🔒 등록·수정·삭제는 관리자 로그인 후 가능합니다. (왼쪽 사이드바)")
+    st.caption("🔒 등록·수정·삭제는 관리자 로그인 후 가능합니다. (왼쪽 위 ≫ 메뉴에서 로그인)")
 
 COLS = {
     "name": "이름", "birth_date": "생년월일", "gender": "성별", "class_name": "반",
@@ -45,32 +46,26 @@ with tab_list:
         else:
             df = df[df["is_active"] == True]  # 교사에게는 재적 중인 아동만
 
-        c1, c2 = st.columns(2)
-        keyword = c1.text_input("이름 검색")
+        keyword = st.text_input("이름 검색")
         classes = sorted([c for c in df["class_name"].dropna().unique() if c])
-        pick_class = c2.selectbox("반 선택", ["전체"] + classes)
+        pick_class = st.selectbox("반 선택", ["전체"] + classes)
         if keyword:
             df = df[df["name"].str.contains(keyword, na=False)]
         if pick_class != "전체":
             df = df[df["class_name"] == pick_class]
 
-        cols = dict(COLS)
-        if not SHOW_CONTACT:
-            cols.pop("guardian_name")
-            cols.pop("guardian_phone")
-        view = df[list(cols)].rename(columns=cols)
-        if not is_admin:
-            view = view.drop(columns=["등록일"], errors="ignore")
+        st.caption(f"총 {len(df)}명")
+        child_cards(df, show_contact=SHOW_CONTACT, show_inactive_tag=is_admin)
 
-        st.dataframe(view, hide_index=True, use_container_width=True)
-        st.caption(f"총 {len(view)}명")
-
-        if is_admin:
+        if is_admin and not df.empty:
+            cols = list(COLS)
+            view = df[cols].rename(columns=COLS)
             st.download_button(
                 "CSV 다운로드",
                 view.to_csv(index=False).encode("utf-8-sig"),  # 엑셀에서 한글 안 깨지게
                 file_name=f"유치부_명부_{date.today()}.csv",
                 mime="text/csv",
+                use_container_width=True,
             )
 
 if is_admin:
@@ -87,7 +82,7 @@ if is_admin:
             allergy = st.text_input("알레르기")
             notes = st.text_area("특이사항")
             new_family = st.checkbox("새가족")
-            if st.form_submit_button("등록"):
+            if st.form_submit_button("등록", use_container_width=True):
                 if not name.strip():
                     st.error("이름은 필수입니다.")
                 else:
@@ -116,7 +111,7 @@ if is_admin:
                 e_allergy = st.text_input("알레르기", value=row.get("allergy") or "")
                 e_notes = st.text_area("특이사항", value=row.get("notes") or "")
                 e_active = st.checkbox("재적 중 (해제 시 퇴원 처리)", value=bool(row["is_active"]))
-                if st.form_submit_button("저장"):
+                if st.form_submit_button("저장", use_container_width=True):
                     update("children", row["id"], {
                         "class_name": e_class or None, "guardian_phone": e_phone or None,
                         "allergy": e_allergy or None, "notes": e_notes or None,
@@ -129,7 +124,7 @@ if is_admin:
         st.subheader("아동 완전 삭제")
         st.warning(
             "완전 삭제는 **되돌릴 수 없으며**, 해당 아동의 출석·심방 기록도 함께 삭제됩니다.\n\n"
-            "기록을 남기고 명단에서만 빼려면 '수정/퇴원 처리' 탭에서 **퇴원 처리**를 사용하세요."
+            "기록을 남기고 명단에서만 빼려면 '수정/퇴원' 탭에서 **퇴원 처리**를 사용하세요."
         )
         df_del = fetch("children", "name")
         if df_del.empty:
@@ -141,7 +136,7 @@ if is_admin:
                 child_id, child_name = options[target]
                 typed = st.text_input(f"확인을 위해 아동 이름 '{child_name}'을(를) 그대로 입력하세요")
                 ok = typed.strip() == child_name
-                if st.button("완전 삭제", type="primary", disabled=not ok):
+                if st.button("완전 삭제", type="primary", disabled=not ok, use_container_width=True):
                     delete("children", child_id)
                     st.session_state["flash"] = f"{child_name} 정보를 완전히 삭제했습니다."
                     st.rerun()
