@@ -1,3 +1,4 @@
+import html
 from datetime import date, time
 import pandas as pd
 import streamlit as st
@@ -6,7 +7,35 @@ from utils.db import fetch, insert, update, delete
 st.title("📅 일정 관리")
 
 CATEGORIES = ["예배", "행사", "교사회의", "교육", "심방", "기타"]
+DOT = {"예배": "🟣", "행사": "🟠", "교사회의": "🟤", "교육": "🟢", "심방": "🔵", "기타": "⚪"}
 WD = "월화수목금토일"
+
+# 이 화면 전용 스타일 (</style> 안쪽에 있어야 합니다)
+st.markdown("""
+<style>
+.evday {display: flex; align-items: center; gap: .5rem; margin: 1.2rem 0 .1rem;
+        font-size: .85rem; font-weight: 700; color: #6b7c93;}
+.evday.sun {color: #d6336c;}
+.evday.sat {color: #1c64f2;}
+.evday .now {background: #4a9fe0; color: #fff; border-radius: 999px; padding: 0 .55rem;
+             font-size: .72rem;}
+.evline {display: flex; align-items: baseline; gap: .7rem; padding: .5rem .2rem;
+         border-bottom: 1px solid rgba(128,128,128,.18); line-height: 1.35;}
+.evline.past {opacity: .5;}
+.evline .tm {flex: 0 0 3.2rem; font-weight: 700; color: #3b5f85;
+             font-variant-numeric: tabular-nums;}
+.evline .bd {flex: 1; min-width: 0;}
+.evline .tt {font-weight: 700; color: #1b3a5c;}
+.evline .cg {font-size: .74rem; padding: .05rem .5rem; margin-left: .35rem; border-radius: 999px;
+             background: #e7f1ff; color: #2b5d8a; font-weight: 400;}
+.evline .lc {font-size: .84rem; color: #8a97a8;}
+.st-key-evlist [data-testid="stHorizontalBlock"] {flex-wrap: nowrap !important; align-items: center;
+  gap: .3rem !important;}
+.st-key-evlist [data-testid="stColumn"]:last-child {flex: 0 0 4.2rem !important; min-width: 4.2rem !important;}
+.st-key-evlist [data-testid="stColumn"]:first-child {flex: 1 1 0 !important; min-width: 0 !important;}
+.st-key-evlist .stButton > button {padding: .15rem .3rem; min-height: 2rem; font-size: .85rem;}
+</style>
+""", unsafe_allow_html=True)
 
 
 def fmt_time(v):
@@ -78,7 +107,6 @@ def edit_dialog(eid: str):
                 "description": e_desc or None,
             })
             st.session_state["flash"] = f"'{e_title.strip()}' 일정을 수정했습니다."
-            st.session_state["ev_table_ver"] = st.session_state.get("ev_table_ver", 0) + 1
             st.rerun()
 
     st.divider()
@@ -86,7 +114,6 @@ def edit_dialog(eid: str):
     if st.button("🗑️ 삭제", disabled=not ok, key=f"del_btn_{eid}", use_container_width=True):
         delete("events", row["id"])
         st.session_state["flash"] = "일정을 삭제했습니다."
-        st.session_state["ev_table_ver"] = st.session_state.get("ev_table_ver", 0) + 1
         st.rerun()
 
 
@@ -117,26 +144,29 @@ with tab_list:
         if ev.empty:
             st.info("표시할 일정이 없습니다.")
         else:
-            ev = ev.assign(_k=ev["time_str"].replace("", "99:99")).sort_values(
-                ["event_date", "_k"]).reset_index(drop=True)
-            view = pd.DataFrame({
-                "날짜": ev["event_date"].apply(lambda d: f"{d.month}/{d.day}({WD[d.weekday()]})"),
-                "시간": ev["time_str"].replace("", "종일"),
-                "제목": ev["title"],
-                "구분": ev["category"].fillna(""),
-                "장소": ev["location"].fillna(""),
-            })
-            st.caption("일정을 누르면 수정·삭제할 수 있습니다.")
-            ver = st.session_state.get("ev_table_ver", 0)
-            sel = st.dataframe(view, hide_index=True, use_container_width=True,
-                               on_select="rerun", selection_mode="single-row",
-                               key=f"ev_table_{ver}")
-            rows = sel.selection.rows if sel and sel.selection else []
-            if rows:
-                eid = str(ev.iloc[rows[0]]["id"])
-                # 팝업을 닫은 뒤 같은 행을 다시 눌러도 열리도록 표를 새로 만든다
-                st.session_state["ev_table_ver"] = ver + 1
-                edit_dialog(eid)
+            ev = ev.assign(_k=ev["time_str"].replace("", "99:99")).sort_values(["event_date", "_k"])
+            with st.container(key="evlist"):
+                for d, grp in ev.groupby("event_date", sort=True):
+                    cls = "sun" if d.weekday() == 6 else ("sat" if d.weekday() == 5 else "")
+                    now = "<span class='now'>오늘</span>" if d == today else ""
+                    st.markdown(
+                        f"<div class='evday {cls}'>{d.month}월 {d.day}일 {WD[d.weekday()]}요일 {now}</div>",
+                        unsafe_allow_html=True)
+                    for _, r in grp.iterrows():
+                        tm = r["time_str"] or "종일"
+                        cat = s_or_empty(r.get("category"))
+                        loc = s_or_empty(r.get("location"))
+                        tag = f"<span class='cg'>{html.escape(cat)}</span>" if cat else ""
+                        place = f"<div class='lc'>📍 {html.escape(loc)}</div>" if loc else ""
+                        past = " past" if d < today else ""
+                        left, right = st.columns([5, 1])
+                        left.markdown(
+                            f"<div class='evline{past}'>"
+                            f"<span class='tm'>{html.escape(tm)}</span>"
+                            f"<div class='bd'><span class='tt'>{html.escape(str(r['title']))}</span>{tag}{place}</div>"
+                            f"</div>", unsafe_allow_html=True)
+                        if right.button("수정", key=f"ev_{r['id']}", use_container_width=True):
+                            edit_dialog(str(r["id"]))
 
 # ---------------------------------------------------------------- 일정 등록
 with tab_add:
