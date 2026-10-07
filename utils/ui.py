@@ -91,6 +91,11 @@ button[data-baseweb="tab"] {border-radius: 12px 12px 0 0; font-weight: 700;}
               border-radius: 999px; background: rgba(74,159,224,.22); vertical-align: middle;}
 .kcard .ktag.new {background: rgba(255,200,0,.35);}
 .kcard a {text-decoration: none;}
+.kflex {display: flex; gap: .75rem; align-items: flex-start;}
+.kbody {min-width: 0; flex: 1;}
+.kphoto {width: 68px; height: 68px; border-radius: 50%; object-fit: cover;
+         border: 3px solid #bfe0fa; flex-shrink: 0; background: #dff0ff;}
+.kphoto.ph {display: flex; align-items: center; justify-content: center; font-size: 1.9rem;}
 </style>
 """
 
@@ -153,7 +158,7 @@ def event_cards(df):
     st.markdown("".join(out), unsafe_allow_html=True)
 
 
-def child_cards(df, show_contact=False, show_inactive_tag=False):
+def child_cards(df, show_contact=False, show_inactive_tag=False, show_photo=False):
     if df is None or df.empty:
         return
     out = ["<div class='kcards'>"]
@@ -167,7 +172,7 @@ def child_cards(df, show_contact=False, show_inactive_tag=False):
             tags += "<span class='ktag new'>새가족 🌱</span>"
         if show_inactive_tag and _s(r.get("is_active")).lower() == "false":
             tags += "<span class='ktag'>퇴원</span>"
-        body = f"<div class='ktop'>🐑 {_e(r.get('name'))}{tags}</div>"
+        body = f"<div class='ktop'>{_e(r.get('name'))}{tags}</div>"
         if _s(r.get("birth_date")):
             body += f"<div class='kmuted'>🎂 {_e(r.get('birth_date'))}</div>"
         if _s(r.get("allergy")):
@@ -178,6 +183,13 @@ def child_cards(df, show_contact=False, show_inactive_tag=False):
             phone = _s(r.get("guardian_phone"))
             tel = f"<a href='tel:{html.escape(phone)}'>📞 {html.escape(phone)}</a>" if phone else ""
             body += f"<div class='ksub'>👤 {_e(r.get('guardian_name'))} {tel}</div>"
-        out.append(f"<div class='kcard'>{body}</div>")
+
+        if show_photo:
+            url = _s(r.get("photo_url"))
+            img = (f"<img class='kphoto' src='{html.escape(url)}' alt=''>" if url
+                   else "<div class='kphoto ph'>🐑</div>")
+            out.append(f"<div class='kcard kflex'>{img}<div class='kbody'>{body}</div></div>")
+        else:
+            out.append(f"<div class='kcard'><div class='ktop' style='display:none'></div>{body}</div>")
     out.append("</div>")
     st.markdown("".join(out), unsafe_allow_html=True)
