@@ -5,6 +5,9 @@ import pandas as pd
 import streamlit as st
 from utils.db import fetch
 
+# 달력 칸에 시간을 함께 표시할지 (False로 바꾸면 '제목-구분'만 표시)
+SHOW_TIME_IN_CALENDAR = True
+
 st.title("🏠 유치부 홈")
 
 today = date.today()
@@ -28,9 +31,20 @@ def go_today():
     st.session_state["cal_year"], st.session_state["cal_month"] = today.year, today.month
 
 
+def fmt_time(v):
+    if v is None or pd.isna(v):
+        return ""
+    return str(v)[:5]
+
+
 ev = fetch("events", "event_date")
 if not ev.empty:
     ev["event_date"] = pd.to_datetime(ev["event_date"]).dt.date
+    if "event_time" not in ev.columns:
+        ev["event_time"] = None
+    ev["time_str"] = ev["event_time"].apply(fmt_time)
+    # 날짜 → 시간순 (시간 없는 일정은 그날의 맨 뒤)
+    ev = ev.assign(_k=ev["time_str"].replace("", "99:99")).sort_values(["event_date", "_k"])
 
 # ---------- 월간 달력 ----------
 st.subheader("🗓️ 월간 일정")
@@ -43,15 +57,17 @@ b3.button("다음달 ▶", on_click=move_month, args=(1,), use_container_width=T
 year, month = st.session_state["cal_year"], st.session_state["cal_month"]
 b4.markdown(f"### {year}년 {month}월")
 
-# 날짜별 '제목-구분' 모으기
+# 날짜별 '[시간] 제목-구분' 모으기
 by_day = {}
 if not ev.empty:
-    month_ev = ev[(pd.to_datetime(ev["event_date"]).dt.year == year)
-                  & (pd.to_datetime(ev["event_date"]).dt.month == month)]
+    d_series = pd.to_datetime(ev["event_date"])
+    month_ev = ev[(d_series.dt.year == year) & (d_series.dt.month == month)]
     for _, r in month_ev.iterrows():
         title = str(r["title"])
         cat = r.get("category")
         label = title if (not cat or cat == title) else f"{title}-{cat}"
+        if SHOW_TIME_IN_CALENDAR and r["time_str"]:
+            label = f"{r['time_str']} {label}"
         by_day.setdefault(r["event_date"].day, []).append(label)
 
 MAX_SHOW = 2
@@ -116,8 +132,9 @@ else:
         st.info("다가오는 일정이 없습니다.")
     else:
         st.dataframe(
-            upcoming[["event_date", "title", "category", "location"]].rename(
-                columns={"event_date": "날짜", "title": "제목", "category": "구분", "location": "장소"}
+            upcoming[["event_date", "time_str", "title", "category", "location"]].rename(
+                columns={"event_date": "날짜", "time_str": "시간", "title": "제목",
+                         "category": "구분", "location": "장소"}
             ),
             hide_index=True, use_container_width=True,
         )
