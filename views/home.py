@@ -1,14 +1,31 @@
-from utils.ui import event_cards, hero
 import calendar
 import html
 from datetime import date
 import pandas as pd
 import streamlit as st
 from utils.db import fetch
+from utils.ui import event_cards, hero
+from utils.notice_ui import notice_cards
+from utils.birthdays import collect, in_month, upcoming
+
+# 아동 생일(이름·반만)을 일반 방문자에게도 보여줄지 (False = 관리자만)
+SHOW_CHILD_BIRTHDAY_TO_ALL = True
 
 hero()
 
 today = date.today()
+is_admin = st.session_state.get("role") == "admin"
+
+# ---------- 공지 ----------
+try:
+    nt = fetch("notices", "created_at", desc=True)
+except Exception:
+    nt = pd.DataFrame()
+if not nt.empty:
+    nt["_pin"] = nt["pinned"].apply(lambda v: str(v).lower() == "true")
+    nt = nt.sort_values(["_pin", "created_at"], ascending=[False, False])
+    st.subheader("📢 공지")
+    notice_cards(nt.head(3))
 
 # 보고 있는 달 (세션에 보관)
 if "cal_year" not in st.session_state:
@@ -43,6 +60,34 @@ if not ev.empty:
     ev["time_str"] = ev["event_time"].apply(fmt_time)
     ev = ev.assign(_k=ev["time_str"].replace("", "99:99")).sort_values(["event_date", "_k"])
 
+# 생일 목록
+children = fetch("children")
+teachers = fetch("teachers")
+people = collect(children if (SHOW_CHILD_BIRTHDAY_TO_ALL or is_admin) else None, teachers)
+
+# ---------- 이번 주 생일 ----------
+week = upcoming(people, today, days=7)
+if week:
+    st.subheader("🎂 이번 주 생일")
+    cards = ["<div class='kcards'>"]
+    for p in week:
+        d = p["date"]
+        if d == today:
+            when = "오늘 🎉"
+        elif (d - today).days == 1:
+            when = "내일"
+        else:
+            when = f"{d.month}/{d.day}({'월화수목금토일'[d.weekday()]})"
+        sub = p["cls"] if p["kind"] == "아동" else "선생님"
+        cards.append(
+            "<div class='kcard'>"
+            f"<div class='kmuted'>{html.escape(when)}</div>"
+            f"<div class='ktop'>🎂 {html.escape(str(p['name']))}"
+            f"<span class='ktag'>{html.escape(p['kind'])}</span></div>"
+            f"<div class='ksub'>{html.escape(sub)}</div></div>")
+    cards.append("</div>")
+    st.markdown("".join(cards), unsafe_allow_html=True)
+
 # ---------- 월간 달력 ----------
 st.subheader("🗓️ 월간 일정")
 
@@ -55,7 +100,6 @@ with st.container(key="calnav"):
     b2.button("오늘", on_click=go_today, use_container_width=True, key="m_today")
     b3.button("▶", on_click=move_month, args=(1,), use_container_width=True, key="m_next")
 
-# 날짜별 일정 모으기
 by_day = {}
 month_ev = ev.iloc[0:0] if ev.empty else ev
 if not ev.empty:
@@ -69,15 +113,20 @@ if not ev.empty:
             label = f"{r['time_str']} {label}"
         by_day.setdefault(r["event_date"].day, []).append(label)
 
+bd_month = in_month(people, year, month)
+for day, plist in bd_month.items():
+    for p in plist:
+        by_day.setdefault(day, []).append(f"🎂 {p['name']}")
+
 MAX_SHOW = 2
 cal = calendar.Calendar(firstweekday=6)  # 일요일 시작
 weeks = cal.monthdayscalendar(year, month)
 
 rows = ["<table class='kcal'><tr>"
         "<th class='sun'>일</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th><th class='sat'>토</th></tr>"]
-for week in weeks:
+for wk in weeks:
     rows.append("<tr>")
-    for i, d in enumerate(week):
+    for i, d in enumerate(wk):
         if d == 0:
             rows.append("<td></td>")
             continue
@@ -102,28 +151,22 @@ if month_ev.empty:
 else:
     event_cards(month_ev)
 
+if bd_month:
+    total = sum(len(v) for v in bd_month.values())
+    with st.expander(f"🎂 {month}월 생일 ({total}명)"):
+        for day in sorted(bd_month):
+            wd = "월화수목금토일"[date(year, month, day).weekday()]
+            names = " · ".join(
+                f"{p['name']}({p['cls'] if p['kind'] == '아동' else '선생님'})" for p in bd_month[day])
+            st.write(f"**{month}/{day}({wd})** {names}")
+
 # ---------- 다가오는 일정 ----------
 st.subheader("📅 다가오는 일정")
 if ev.empty:
     st.info("등록된 일정이 없습니다.")
 else:
-    upcoming = ev[ev["event_date"] >= today].head(5)
-    if upcoming.empty:
+    upc = ev[ev["event_date"] >= today].head(5)
+    if upc.empty:
         st.info("다가오는 일정이 없습니다.")
     else:
-        event_cards(upcoming)
-
-# ---------- 이번 달 생일 (관리자만) ----------
-if st.session_state.get("role") == "admin":
-    st.subheader("🎂 이번 달 생일")
-    ch = fetch("children")
-    if not ch.empty:
-        ch = ch[ch["is_active"] == True].copy()
-        ch["birth_date"] = pd.to_datetime(ch["birth_date"], errors="coerce")
-        bd = ch[ch["birth_date"].dt.month == today.month]
-        if bd.empty:
-            st.write("이번 달 생일인 아이가 없습니다.")
-        else:
-            bd = bd.sort_values(by="birth_date", key=lambda s: s.dt.day)
-            for _, r in bd.iterrows():
-                st.write(f"🎈 {r['birth_date'].day}일 · {r['name']} ({r.get('class_name') or '반 미정'})")
+        event_cards(upc)
