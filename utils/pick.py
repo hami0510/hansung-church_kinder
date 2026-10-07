@@ -37,7 +37,7 @@ def search_one(df, label: str, key: str, kind: str = "teacher", optional: bool =
     c1, c2 = st.columns([3, 2])
     with c1:
         q = st.text_input(f"🔍 {label} 검색", key=f"{key}_q",
-                          placeholder="이름 또는 반으로 검색 (예: 유혜정, 조이, 1부)")
+                          placeholder="이름 또는 반으로 검색 (예: 이경한, 조이, 1부)")
     kw = q.strip().replace(" ", "")
 
     rows = []
