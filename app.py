@@ -1,7 +1,9 @@
 import hmac
 import streamlit as st
+from utils.ui import inject_css
 
 st.set_page_config(page_title="유치부 관리", page_icon="⛪", layout="wide")
+inject_css()
 
 MAX_FAILS = 5  # 한 접속(세션)에서 비밀번호 틀릴 수 있는 횟수
 
