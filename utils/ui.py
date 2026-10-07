@@ -18,7 +18,7 @@ html, body, .stMarkdown, .stMarkdown p, label, button p, input, textarea,
   font-family: 'Material Symbols Rounded', 'Material Icons' !important;
 }
 h1, h2, h3, .calhead, .hero-title {font-family: 'Jua', 'Gowun Dodum', sans-serif !important; letter-spacing: 0;}
-.block-container {padding-top: 4rem; padding-bottom: 3rem; max-width: 1100px;}
+.block-container {padding-top: 2.2rem; padding-bottom: 3rem; max-width: 1100px;}
 
 /* ---- 버튼 둥글게 ---- */
 .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
@@ -29,16 +29,22 @@ button[data-baseweb="tab"] {border-radius: 12px 12px 0 0; font-weight: 700;}
 
 /* ---- 환영 배너 ---- */
 .hero {background: linear-gradient(135deg, #d6ecff 0%, #eaf6ff 55%, #fff6cf 100%);
-       border: 2px solid #bfe0fa; border-radius: 22px; padding: 1.1rem 1.2rem; margin: 0 0 1.2rem;
+       border: 2px solid #bfe0fa; border-radius: 22px; padding: 1.1rem 1.2rem; margin: 0 0 .7rem;
        position: relative; overflow: hidden; color: #1b3a5c;}
 .hero-title {font-size: 1.7rem; line-height: 1.3; margin: 0;}
 .hero-sub {font-size: 1rem; margin-top: .3rem; color: #3b5f85;}
 .hero-deco {position: absolute; right: 14px; top: 8px; font-size: 2.1rem; opacity: .9;}
 .hero-deco2 {position: absolute; right: 64px; bottom: 6px; font-size: 1.2rem; opacity: .7;}
 
+/* ---- 현황 한 줄 ---- */
+.stats {display: flex; flex-wrap: wrap; gap: .4rem .5rem; margin: 0 0 1rem;}
+.stat {font-size: .86rem; padding: .22rem .75rem; border-radius: 999px; background: #eef6ff;
+       border: 1px solid #cfe5f8; color: #1b3a5c; white-space: nowrap;}
+.stat b {color: #2b6cb0;}
+
 /* ---- 모바일 공통 ---- */
 @media (max-width: 640px) {
-  .block-container {padding-left: 0.8rem; padding-right: 0.8rem; padding-top: 4rem !important;}
+  .block-container {padding-left: 0.8rem; padding-right: 0.8rem; padding-top: 3rem !important;}
   h1 {font-size: 1.6rem !important;}
   h2, h3 {font-size: 1.2rem !important;}
   .stButton > button, .stDownloadButton > button {min-height: 2.8rem;}
@@ -46,6 +52,7 @@ button[data-baseweb="tab"] {border-radius: 12px 12px 0 0; font-weight: 700;}
   button[data-baseweb="tab"] {padding-left: 0.6rem; padding-right: 0.6rem; white-space: nowrap;}
   .hero-title {font-size: 1.35rem;}
   .hero-deco {font-size: 1.7rem;}
+  .stat {font-size: .8rem; padding: .18rem .6rem;}
 }
 
 /* ---- 달력 이동 버튼: 모바일에서도 한 줄 ---- */
@@ -97,21 +104,6 @@ button[data-baseweb="tab"] {border-radius: 12px 12px 0 0; font-weight: 700;}
 .kphoto {width: 68px; height: 68px; border-radius: 50%; object-fit: cover;
          border: 3px solid #bfe0fa; flex-shrink: 0; background: #dff0ff;}
 .kphoto.ph {display: flex; align-items: center; justify-content: center; font-size: 1.9rem;}
-
-/* ---- 일정 목록(한 줄 행) ---- */
-.evday {font-weight: 700; color: #1b3a5c; margin: 1rem 0 .2rem; padding-bottom: .2rem;
-        border-bottom: 2px solid #cfe5f8; font-size: 1.02rem;}
-.evday.sun {color: #d6336c;}
-.evday.sat {color: #1c64f2;}
-.evday.today {background: #fff3bf; border-radius: 8px; padding: .15rem .5rem;}
-.st-key-evlist .stButton > button {
-  border: none !important; background: transparent !important; box-shadow: none !important;
-  border-radius: 10px !important; justify-content: flex-start; text-align: left;
-  padding: .45rem .6rem !important; min-height: 2.4rem; font-weight: 400;}
-.st-key-evlist .stButton > button:hover {background: rgba(74,159,224,.12) !important;}
-.st-key-evlist .stButton > button p {text-align: left; width: 100%; font-size: .98rem;
-  white-space: normal; margin: 0;}
-.st-key-evlist [data-testid="stVerticalBlock"] {gap: .05rem;}
 </style>
 """
 
@@ -129,6 +121,14 @@ def hero():
         "</div>",
         unsafe_allow_html=True,
     )
+
+
+def stats_line(items):
+    """items: [(아이콘, 라벨, 값), ...] → 현황 칩 한 줄"""
+    chips = "".join(
+        f"<span class='stat'>{html.escape(icon)} {html.escape(label)} <b>{html.escape(str(val))}</b></span>"
+        for icon, label, val in items)
+    st.markdown(f"<div class='stats'>{chips}</div>", unsafe_allow_html=True)
 
 
 def _s(v):
