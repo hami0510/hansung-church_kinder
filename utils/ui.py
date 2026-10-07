@@ -3,9 +3,31 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
+CAT_ICON = {"예배": "⛪", "행사": "🎈", "교사회의": "📋", "교육": "📖", "심방": "🏠", "기타": "⭐"}
+
 CSS = """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap');
+
+html, body, [class*="st-"], .stMarkdown, button, input, textarea {font-family: 'Gowun Dodum', sans-serif;}
+h1, h2, h3, .calhead, .hero-title {font-family: 'Jua', 'Gowun Dodum', sans-serif !important; letter-spacing: 0;}
 .block-container {padding-top: 2.5rem; padding-bottom: 3rem; max-width: 1100px;}
+
+/* ---- 버튼 둥글게 ---- */
+.stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
+  border-radius: 999px; border: 2px solid #8ec9f5; font-weight: 700;}
+.stButton > button[kind="primary"] {background: #4a9fe0; border-color: #4a9fe0; color: #fff;}
+div[data-baseweb="tab-list"] {gap: .2rem;}
+button[data-baseweb="tab"] {border-radius: 12px 12px 0 0; font-weight: 700;}
+
+/* ---- 환영 배너 ---- */
+.hero {background: linear-gradient(135deg, #d6ecff 0%, #eaf6ff 55%, #fff6cf 100%);
+       border: 2px solid #bfe0fa; border-radius: 22px; padding: 1.1rem 1.2rem; margin: 0 0 1.2rem;
+       position: relative; overflow: hidden; color: #1b3a5c;}
+.hero-title {font-size: 1.7rem; line-height: 1.3; margin: 0;}
+.hero-sub {font-size: 1rem; margin-top: .3rem; color: #3b5f85;}
+.hero-deco {position: absolute; right: 14px; top: 8px; font-size: 2.1rem; opacity: .9;}
+.hero-deco2 {position: absolute; right: 64px; bottom: 6px; font-size: 1.2rem; opacity: .7;}
 
 /* ---- 모바일 공통 ---- */
 @media (max-width: 640px) {
@@ -15,27 +37,34 @@ CSS = """
   .stButton > button, .stDownloadButton > button {min-height: 2.8rem;}
   div[data-baseweb="tab-list"] {overflow-x: auto;}
   button[data-baseweb="tab"] {padding-left: 0.6rem; padding-right: 0.6rem; white-space: nowrap;}
+  .hero-title {font-size: 1.35rem;}
+  .hero-deco {font-size: 1.7rem;}
 }
 
 /* ---- 달력 이동 버튼: 모바일에서도 한 줄 ---- */
 .st-key-calnav [data-testid="stHorizontalBlock"] {flex-wrap: nowrap !important; gap: 0.4rem;}
 .st-key-calnav [data-testid="stColumn"], .st-key-calnav [data-testid="column"] {
   min-width: 0 !important; flex: 1 1 0 !important; width: auto !important;}
-.calhead {text-align: center; font-size: 1.3rem; font-weight: 700; margin: 0.2rem 0 0.4rem;}
+.calhead {text-align: center; font-size: 1.4rem; margin: 0.2rem 0 0.4rem;}
 
 /* ---- 월간 달력 ---- */
-.kcal {width: 100%; border-collapse: collapse; table-layout: fixed;}
-.kcal th {background: #ffd966; color: #333; padding: 6px 2px; border: 1px solid #d9d9d9; font-size: 14px;}
-.kcal td {vertical-align: top; height: 92px; padding: 3px; border: 1px solid rgba(128,128,128,.35); font-size: 12px;}
+.kcal {width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed;
+       border: 2px solid #bfe0fa; border-radius: 16px; overflow: hidden;}
+.kcal th {background: #cfe9fc; color: #1b3a5c; padding: 7px 2px; border-bottom: 2px solid #bfe0fa; font-size: 14px;}
+.kcal th.sun {color: #d6336c;}
+.kcal th.sat {color: #1c64f2;}
+.kcal td {vertical-align: top; height: 92px; padding: 3px; border-top: 1px solid rgba(128,128,128,.25);
+          border-left: 1px solid rgba(128,128,128,.2); font-size: 12px;}
+.kcal td:first-child {border-left: none;}
 .kcal .d {font-weight: 700; font-size: 13px;}
-.kcal .sun {color: #e03131;}
+.kcal .sun {color: #d6336c;}
 .kcal .sat {color: #1c64f2;}
-.kcal td.today {background: #fff3bf; color: #222;}
-.kcal .ev {background: #e7f1ff; color: #1c3d6e; border-radius: 3px; margin-top: 2px; padding: 1px 3px;
+.kcal td.today {background: #fff3bf; color: #222; box-shadow: inset 0 0 0 2px #ffd43b;}
+.kcal .ev {background: #dff0ff; color: #1b3a5c; border-radius: 8px; margin-top: 2px; padding: 1px 4px;
            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
 .kcal .more {color: #868e96; margin-top: 2px;}
 .kcal .dots {display: none;}
-.kcal .dot {display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #1c64f2; margin: 1px;}
+.kcal .dot {display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #4a9fe0; margin: 1px;}
 @media (max-width: 640px) {
   .kcal th {font-size: 12px; padding: 4px 0;}
   .kcal td {height: 52px; padding: 2px; font-size: 11px;}
@@ -44,17 +73,17 @@ CSS = """
 }
 
 /* ---- 카드 목록 (일정, 아동) ---- */
-.kcards {display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 0.6rem; margin: 0.4rem 0 1rem;}
-.kcard {border: 1px solid rgba(128,128,128,.35); background: rgba(128,128,128,.07);
-        border-radius: 10px; padding: 0.7rem 0.9rem; line-height: 1.5;}
+.kcards {display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 0.7rem; margin: 0.4rem 0 1rem;}
+.kcard {border: 2px solid #cfe5f8; background: rgba(120,180,240,.10);
+        border-radius: 18px; padding: 0.75rem 0.95rem; line-height: 1.5;}
 .kcard.past {opacity: .55;}
-.kcard .ktop {font-weight: 700; font-size: 1.02rem;}
+.kcard .ktop {font-weight: 700; font-size: 1.05rem;}
 .kcard .ksub {font-size: .95rem;}
 .kcard .kmuted {font-size: .88rem; opacity: .75;}
-.kcard .kwarn {font-size: .92rem; color: #e03131; font-weight: 600;}
-.kcard .ktag {display: inline-block; font-size: .78rem; padding: 0 .5rem; margin-left: .3rem;
-              border-radius: 999px; background: rgba(28,100,242,.15); vertical-align: middle;}
-.kcard .ktag.new {background: rgba(240,140,0,.2);}
+.kcard .kwarn {font-size: .92rem; color: #e03131; font-weight: 700;}
+.kcard .ktag {display: inline-block; font-size: .78rem; padding: 0 .55rem; margin-left: .3rem;
+              border-radius: 999px; background: rgba(74,159,224,.22); vertical-align: middle;}
+.kcard .ktag.new {background: rgba(255,200,0,.35);}
 .kcard a {text-decoration: none;}
 </style>
 """
@@ -62,6 +91,17 @@ CSS = """
 
 def inject_css():
     st.markdown(CSS, unsafe_allow_html=True)
+
+
+def hero():
+    st.markdown(
+        "<div class='hero'>"
+        "<div class='hero-deco'>🕊️</div><div class='hero-deco2'>⭐</div>"
+        "<div class='hero-title'>한성교회 유치부</div>"
+        "<div class='hero-sub'>예수님 안에서 쑥쑥 자라는 아이들 🐑✨</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _s(v):
@@ -92,13 +132,14 @@ def event_cards(df):
         if _s(r.get("time_str")):
             when += f" {_s(r.get('time_str'))}"
         cat = _s(r.get("category"))
+        icon = CAT_ICON.get(cat, "⭐")
         tag = f"<span class='ktag'>{html.escape(cat)}</span>" if cat else ""
         loc = _s(r.get("location"))
         past = " past" if d < today else ""
         out.append(
             f"<div class='kcard{past}'>"
             f"<div class='kmuted'>{html.escape(when)}</div>"
-            f"<div class='ktop'>{_e(r.get('title'))}{tag}</div>"
+            f"<div class='ktop'>{icon} {_e(r.get('title'))}{tag}</div>"
             + (f"<div class='ksub'>📍 {html.escape(loc)}</div>" if loc else "")
             + "</div>"
         )
@@ -117,10 +158,10 @@ def child_cards(df, show_contact=False, show_inactive_tag=False):
         if _s(r.get("gender")):
             tags += f"<span class='ktag'>{_e(r.get('gender'))}</span>"
         if _s(r.get("is_new_family")).lower() == "true":
-            tags += "<span class='ktag new'>새가족</span>"
+            tags += "<span class='ktag new'>새가족 🌱</span>"
         if show_inactive_tag and _s(r.get("is_active")).lower() == "false":
             tags += "<span class='ktag'>퇴원</span>"
-        body = f"<div class='ktop'>{_e(r.get('name'))}{tags}</div>"
+        body = f"<div class='ktop'>🐑 {_e(r.get('name'))}{tags}</div>"
         if _s(r.get("birth_date")):
             body += f"<div class='kmuted'>🎂 {_e(r.get('birth_date'))}</div>"
         if _s(r.get("allergy")):
