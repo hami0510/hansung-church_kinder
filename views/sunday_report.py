@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 from utils.auth import can_manage
 from utils.db import fetch, insert, update, delete
+from utils.labels import class_label
 
 KST = ZoneInfo("Asia/Seoul")
 STATUS = ["출석", "불참", "미정"]
@@ -39,12 +40,15 @@ teachers = fetch("teachers", "name")
 if teachers.empty:
     st.warning("먼저 '교사 · 반 명단'에서 교사를 등록해 주세요.")
     st.stop()
+for col in ["service_part", "class_no"]:
+    if col not in teachers.columns:
+        teachers[col] = None
 teachers = teachers[teachers["is_active"] == True]
 
 tab_in, tab_sum = st.tabs(["내 출석 보고", "제출 현황"])
 
 with tab_in:
-    opts = {f"{r['name']} ({r.get('class_name') or '반 미정'})": r["id"]
+    opts = {f"{r['name']} ({class_label(r)})": r["id"]
             for _, r in teachers.iterrows()}
     me = st.selectbox("선생님 이름 선택", list(opts))
     tid = opts[me]
@@ -101,7 +105,7 @@ with tab_sum:
 
     if not sub.empty:
         name_of = dict(zip(teachers["id"], teachers["name"]))
-        cls_of = dict(zip(teachers["id"], teachers["class_name"]))
+        cls_of = {r["id"]: class_label(r) for _, r in teachers.iterrows()}
         show = sub.assign(
             이름=sub["teacher_id"].map(name_of),
             반=sub["teacher_id"].map(cls_of),
@@ -116,4 +120,4 @@ with tab_sum:
         st.write("모두 제출했습니다. 🎉")
     else:
         for _, r in missing.iterrows():
-            st.write(f"- {r['name']} ({r.get('class_name') or '반 미정'})")
+            st.write(f"- {r['name']} ({class_label(r)})")
