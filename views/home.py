@@ -4,9 +4,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 from utils.db import fetch
-
-# 달력 칸에 시간을 함께 표시할지 (False로 바꾸면 '제목-구분'만 표시)
-SHOW_TIME_IN_CALENDAR = True
+from utils.ui import event_cards
 
 st.title("🏠 유치부 홈")
 
@@ -43,22 +41,23 @@ if not ev.empty:
     if "event_time" not in ev.columns:
         ev["event_time"] = None
     ev["time_str"] = ev["event_time"].apply(fmt_time)
-    # 날짜 → 시간순 (시간 없는 일정은 그날의 맨 뒤)
     ev = ev.assign(_k=ev["time_str"].replace("", "99:99")).sort_values(["event_date", "_k"])
 
 # ---------- 월간 달력 ----------
 st.subheader("🗓️ 월간 일정")
 
-b1, b2, b3, b4 = st.columns([1, 1, 1, 3])
-b1.button("◀ 이전달", on_click=move_month, args=(-1,), use_container_width=True)
-b2.button("오늘", on_click=go_today, use_container_width=True)
-b3.button("다음달 ▶", on_click=move_month, args=(1,), use_container_width=True)
-
 year, month = st.session_state["cal_year"], st.session_state["cal_month"]
-b4.markdown(f"### {year}년 {month}월")
+st.markdown(f"<div class='calhead'>{year}년 {month}월</div>", unsafe_allow_html=True)
 
-# 날짜별 '[시간] 제목-구분' 모으기
+with st.container(key="calnav"):
+    b1, b2, b3 = st.columns(3)
+    b1.button("◀", on_click=move_month, args=(-1,), use_container_width=True, key="m_prev")
+    b2.button("오늘", on_click=go_today, use_container_width=True, key="m_today")
+    b3.button("▶", on_click=move_month, args=(1,), use_container_width=True, key="m_next")
+
+# 날짜별 일정 모으기
 by_day = {}
+month_ev = ev.iloc[0:0] if ev.empty else ev
 if not ev.empty:
     d_series = pd.to_datetime(ev["event_date"])
     month_ev = ev[(d_series.dt.year == year) & (d_series.dt.month == month)]
@@ -66,32 +65,13 @@ if not ev.empty:
         title = str(r["title"])
         cat = r.get("category")
         label = title if (not cat or cat == title) else f"{title}-{cat}"
-        if SHOW_TIME_IN_CALENDAR and r["time_str"]:
+        if r["time_str"]:
             label = f"{r['time_str']} {label}"
         by_day.setdefault(r["event_date"].day, []).append(label)
 
 MAX_SHOW = 2
 cal = calendar.Calendar(firstweekday=6)  # 일요일 시작
 weeks = cal.monthdayscalendar(year, month)
-
-css = """
-<style>
-.kcal {width:100%; border-collapse:collapse; table-layout:fixed;}
-.kcal th {background:#ffd966; padding:6px 2px; border:1px solid #d9d9d9; font-size:14px;}
-.kcal td {vertical-align:top; height:92px; padding:3px; border:1px solid #d9d9d9; font-size:12px;}
-.kcal .d {font-weight:700; font-size:13px;}
-.kcal .sun {color:#e03131;}
-.kcal .sat {color:#1c64f2;}
-.kcal .today {background:#fff3bf;}
-.kcal .ev {background:#e7f1ff; border-radius:3px; margin-top:2px; padding:1px 3px;
-           overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-.kcal .more {color:#868e96; margin-top:2px;}
-@media (max-width: 640px) {
-  .kcal td {height:70px; font-size:10px; padding:1px;}
-  .kcal th {font-size:12px;}
-}
-</style>
-"""
 
 rows = ["<table class='kcal'><tr>"
         "<th class='sun'>일</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th><th class='sat'>토</th></tr>"]
@@ -107,20 +87,20 @@ for week in weeks:
         body = "".join(f"<div class='ev'>{html.escape(x)}</div>" for x in items[:MAX_SHOW])
         if len(items) > MAX_SHOW:
             body += f"<div class='more'>+{len(items) - MAX_SHOW}개 더보기</div>"
+        if items:  # 모바일용 점 표시
+            body += "<div class='dots'>" + "<span class='dot'></span>" * min(len(items), 4) + "</div>"
         rows.append(f"<td class='{td_cls}'><div class='{cls}'>{d}</div>{body}</td>")
     rows.append("</tr>")
 rows.append("</table>")
 
-st.markdown(css + "".join(rows), unsafe_allow_html=True)
+st.markdown("".join(rows), unsafe_allow_html=True)
 
-# ---------- 이번 달 일정 목록 ----------
-with st.expander(f"{month}월 일정 전체 목록", expanded=False):
-    if not by_day:
-        st.write("이 달에는 등록된 일정이 없습니다.")
-    else:
-        for day in sorted(by_day):
-            wd = "월화수목금토일"[date(year, month, day).weekday()]
-            st.write(f"**{month}/{day}({wd})** · " + " / ".join(by_day[day]))
+# ---------- 이번 달 일정 (카드) ----------
+st.subheader(f"📋 {month}월 일정")
+if month_ev.empty:
+    st.write("이 달에는 등록된 일정이 없습니다.")
+else:
+    event_cards(month_ev)
 
 # ---------- 다가오는 일정 ----------
 st.subheader("📅 다가오는 일정")
@@ -131,13 +111,7 @@ else:
     if upcoming.empty:
         st.info("다가오는 일정이 없습니다.")
     else:
-        st.dataframe(
-            upcoming[["event_date", "time_str", "title", "category", "location"]].rename(
-                columns={"event_date": "날짜", "time_str": "시간", "title": "제목",
-                         "category": "구분", "location": "장소"}
-            ),
-            hide_index=True, use_container_width=True,
-        )
+        event_cards(upcoming)
 
 # ---------- 이번 달 생일 (관리자만) ----------
 if st.session_state.get("role") == "admin":
