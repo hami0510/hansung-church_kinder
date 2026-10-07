@@ -1,3 +1,4 @@
+from datetime import date
 import streamlit as st
 from utils.auth import can_manage, can_see_contact
 from utils.db import fetch, insert, update, delete
@@ -80,6 +81,8 @@ if manage:
             c1, c2 = st.columns(2)
             name = c1.text_input("이름 *")
             phone = c2.text_input("연락처", placeholder="숫자만 입력해도 010-1234-5678로 저장됩니다")
+            birth = st.date_input("생년월일 (선택, 생일 알림용)", value=None,
+                                  min_value=date(1940, 1, 1), max_value=date.today())
             c3, c4, c5 = st.columns(3)
             cls = c3.selectbox("담당 반", [NONE] + CLASSES)
             part = c4.selectbox("부", [NONE] + PARTS)
@@ -93,6 +96,7 @@ if manage:
                 else:
                     insert("teachers", {
                         "name": name.strip(), "phone": format_phone(phone),
+                        "birth_date": birth.isoformat() if birth else None,
                         "class_name": None if cls == NONE else cls,
                         "service_part": None if part == NONE else part,
                         "class_no": None if no == NONE else int(no),
@@ -121,9 +125,15 @@ if manage:
             no_opts = [NONE] + NOS
             cur_role = row.get("role_title") if isinstance(row.get("role_title"), str) and row.get("role_title") else "교사"
             role_opts = ROLES + ([cur_role] if cur_role not in ROLES else [])
+            try:
+                cur_birth = date.fromisoformat(str(row.get("birth_date"))[:10])
+            except Exception:
+                cur_birth = None
 
             with st.form("edit_teacher"):
                 e_phone = st.text_input("연락처", value=row.get("phone") or "")
+                e_birth = st.date_input("생년월일 (선택, 생일 알림용)", value=cur_birth,
+                                        min_value=date(1940, 1, 1), max_value=date.today())
                 c3, c4, c5 = st.columns(3)
                 e_cls = c3.selectbox("담당 반", cls_opts,
                                      index=cls_opts.index(cur_cls) if cur_cls in cls_opts else 0)
@@ -139,6 +149,7 @@ if manage:
                 if st.form_submit_button("저장", use_container_width=True):
                     update("teachers", row["id"], {
                         "phone": format_phone(e_phone),
+                        "birth_date": e_birth.isoformat() if e_birth else None,
                         "class_name": None if e_cls == NONE else e_cls,
                         "service_part": None if e_part == NONE else e_part,
                         "class_no": None if e_no == NONE else int(e_no),
