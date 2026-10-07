@@ -28,9 +28,12 @@ def _s(v):
     return v if isinstance(v, str) else ""
 
 
-def search_one(df, label: str, key: str):
+def search_one(df, label: str, key: str, kind: str = "teacher", optional: bool = False):
     """검색칸만 사용. 검색 결과가 정확히 1명일 때 그 사람의 id를 반환, 아니면 None.
-    선택 목록은 없고, 옆에 정보 카드를 보여준다."""
+    kind: "teacher"(교사) 또는 "child"(아동) - 카드 모양만 다름
+    optional: True면 검색칸이 비어 있어도 괜찮다는 안내 문구를 보여줌 (반환은 None)
+    """
+    icon = "👩‍🏫" if kind == "teacher" else "🐑"
     c1, c2 = st.columns([3, 2])
     with c1:
         q = st.text_input(f"🔍 {label} 검색", key=f"{key}_q",
@@ -46,15 +49,16 @@ def search_one(df, label: str, key: str):
     chosen = None
     with c2:
         if not kw:
-            st.caption("이름을 입력하면 선생님 정보가 나타납니다.")
+            st.caption("선택하지 않아도 됩니다." if optional
+                       else "이름을 입력하면 정보가 나타납니다.")
         elif not rows:
             st.warning("검색 결과가 없습니다.")
         elif len(rows) == 1:
             chosen = rows[0]
-            role = _s(chosen.get("role_title"))
+            role = _s(chosen.get("role_title")) if kind == "teacher" else ""
             st.markdown(
                 "<div class='kcard'>"
-                f"<div class='ktop'>👩‍🏫 {html.escape(str(chosen['name']))}"
+                f"<div class='ktop'>{icon} {html.escape(str(chosen['name']))}"
                 + (f"<span class='ktag'>{html.escape(role)}</span>" if role else "")
                 + "</div>"
                 f"<div class='ksub'>{html.escape(class_label(chosen))}</div>"
@@ -68,4 +72,6 @@ def search_one(df, label: str, key: str):
         names = " · ".join(f"{r['name']}({class_label(r)})" for r in rows[:8])
         st.caption(("후보: " + names) + (" …" if len(rows) > 8 else ""))
 
+    # 호출한 화면에서 '검색어는 있는데 1명이 아님'을 알 수 있도록 상태 보관
+    st.session_state[f"{key}_ambiguous"] = bool(kw) and len(rows) != 1
     return None if chosen is None else chosen["id"]
