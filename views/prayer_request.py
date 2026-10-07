@@ -3,7 +3,7 @@ import streamlit as st
 from utils.auth import can_manage, can_view_requests
 from utils.db import fetch, insert, update, delete
 from utils.notify import notify
-from utils.pick import search_pick
+from utils.pick import search_one
 
 CATS = ["아이", "가정", "교사", "부서", "기타"]
 STATUS = ["접수", "기도중", "응답"]
@@ -21,7 +21,7 @@ teachers = fetch("teachers", "name")
 if teachers.empty:
     st.warning("먼저 '교사 · 반 명단'에서 교사를 등록해 주세요.")
     st.stop()
-for col in ["service_part", "class_no"]:
+for col in ["service_part", "class_no", "role_title"]:
     if col not in teachers.columns:
         teachers[col] = None
 teachers = teachers[teachers["is_active"] == True]
@@ -30,21 +30,23 @@ tabs = st.tabs(["기도제목 올리기"] + (["기도제목 목록"] if view_lis
 
 # ---------------------------------------------------------------- 올리기
 with tabs[0]:
-    teacher_id = search_pick(teachers, "선생님", key="pr_t")
-    with st.form("prayer_form", clear_on_submit=True):
-        cat = st.selectbox("구분", CATS)
-        content = st.text_area("기도제목 *")
-        if st.form_submit_button("기도제목 보내기", use_container_width=True):
-            if teacher_id is None:
-                st.error("선생님을 선택해 주세요.")
-            elif not content.strip():
-                st.error("기도제목 내용을 입력해 주세요.")
-            else:
-                insert("prayer_requests", {"teacher_id": teacher_id, "category": cat,
-                                           "content": content.strip()})
-                notify("prayer", "새 기도제목이 접수되었습니다.")
-                st.session_state["flash"] = "기도제목이 접수되었습니다."
-                st.rerun()
+    teacher_id = search_one(teachers, "선생님", key="pr_t")
+
+    if teacher_id is None:
+        st.info("검색해서 선생님이 한 명으로 정해지면 기도제목을 올릴 수 있습니다.")
+    else:
+        with st.form("prayer_form", clear_on_submit=True):
+            cat = st.selectbox("구분", CATS)
+            content = st.text_area("기도제목 *")
+            if st.form_submit_button("기도제목 보내기", use_container_width=True):
+                if not content.strip():
+                    st.error("기도제목 내용을 입력해 주세요.")
+                else:
+                    insert("prayer_requests", {"teacher_id": teacher_id, "category": cat,
+                                               "content": content.strip()})
+                    notify("prayer", "새 기도제목이 접수되었습니다.")
+                    st.session_state["flash"] = "기도제목이 접수되었습니다."
+                    st.rerun()
 
 # ---------------------------------------------------------------- 목록
 if view_list:
