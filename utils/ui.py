@@ -2,6 +2,7 @@ import html
 from datetime import date
 import pandas as pd
 import streamlit as st
+from utils.labels import class_label
 
 CAT_ICON = {"예배": "⛪", "행사": "🎈", "교사회의": "📋", "교육": "📖", "심방": "🏠", "기타": "⭐"}
 
@@ -164,8 +165,9 @@ def child_cards(df, show_contact=False, show_inactive_tag=False, show_photo=Fals
     out = ["<div class='kcards'>"]
     for _, r in df.iterrows():
         tags = ""
-        if _s(r.get("class_name")):
-            tags += f"<span class='ktag'>{_e(r.get('class_name'))}</span>"
+        lbl = class_label(r)
+        if lbl != "반 미정":
+            tags += f"<span class='ktag'>{html.escape(lbl)}</span>"
         if _s(r.get("gender")):
             tags += f"<span class='ktag'>{_e(r.get('gender'))}</span>"
         if _s(r.get("is_new_family")).lower() == "true":
