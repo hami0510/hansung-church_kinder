@@ -2,11 +2,12 @@ from datetime import date, time
 import pandas as pd
 import streamlit as st
 from utils.db import fetch, insert, update, delete
-from utils.ui import event_card_html
 
 st.title("📅 일정 관리")
 
 CATEGORIES = ["예배", "행사", "교사회의", "교육", "심방", "기타"]
+DOT = {"예배": "🟣", "행사": "🟠", "교사회의": "🟤", "교육": "🟢", "심방": "🔵", "기타": "⚪"}
+WD = "월화수목금토일"
 
 
 def fmt_time(v):
@@ -101,22 +102,36 @@ with tab_list:
         st.info("등록된 일정이 없습니다.")
     else:
         ev = prepare(ev)
-        only_future = st.checkbox("지난 일정 숨기기", value=True)
         today = date.today()
+        c1, c2 = st.columns([1, 2])
+        only_future = c1.checkbox("지난 일정 숨기기", value=True)
+        kw = c2.text_input("🔍 검색", placeholder="제목·장소·구분으로 검색",
+                           label_visibility="collapsed").strip().replace(" ", "")
         if only_future:
             ev = ev[ev["event_date"] >= today]
+        if kw:
+            hay = (ev["title"].fillna("") + ev["location"].fillna("") + ev["category"].fillna("")
+                   ).str.replace(" ", "")
+            ev = ev[hay.str.contains(kw, case=False, na=False)]
         if ev.empty:
             st.info("표시할 일정이 없습니다.")
         else:
             ev = ev.assign(_k=ev["time_str"].replace("", "99:99")).sort_values(["event_date", "_k"])
-            st.caption("카드 아래 ✏️ 수정 버튼을 누르면 팝업에서 바로 고칠 수 있습니다.")
-            cols = st.columns(3)
-            for i, (_, r) in enumerate(ev.iterrows()):
-                with cols[i % 3]:
-                    st.markdown(event_card_html(r, past=r["event_date"] < today),
-                                unsafe_allow_html=True)
-                    if st.button("✏️ 수정", key=f"edit_{r['id']}", use_container_width=True):
-                        edit_dialog(str(r["id"]))
+            st.caption("일정을 누르면 수정·삭제할 수 있습니다.")
+            with st.container(key="evlist"):
+                for d, grp in ev.groupby("event_date", sort=True):
+                    cls = "sun" if d.weekday() == 6 else ("sat" if d.weekday() == 5 else "")
+                    cls += " today" if d == today else ""
+                    st.markdown(
+                        f"<div class='evday {cls}'>{d.month}월 {d.day}일 ({WD[d.weekday()]})"
+                        f"{' · 오늘' if d == today else ''}</div>", unsafe_allow_html=True)
+                    for _, r in grp.iterrows():
+                        t = r["time_str"] or "종일"
+                        dot = DOT.get(s_or_empty(r.get("category")), "⚪")
+                        loc = s_or_empty(r.get("location"))
+                        text = f"{dot}  {t}   {r['title']}" + (f"   ·   📍{loc}" if loc else "")
+                        if st.button(text, key=f"ev_{r['id']}", use_container_width=True):
+                            edit_dialog(str(r["id"]))
 
 # ---------------------------------------------------------------- 일정 등록
 with tab_add:
