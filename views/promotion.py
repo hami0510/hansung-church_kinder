@@ -1,7 +1,7 @@
 from datetime import date
 import pandas as pd
 import streamlit as st
-from utils.auth import can_manage
+from utils.auth import can_manage_roster as can_manage
 from utils.db import fetch, update
 from utils.labels import class_label
 
