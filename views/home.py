@@ -16,9 +16,6 @@ except Exception:
 SHOW_CHILD_BIRTHDAY_TO_ALL = True
 # 다가오는 생일을 며칠 앞까지 보여줄지
 UPCOMING_DAYS = 30
-# True  = 일정을 누르면 '열기' 확인 줄이 먼저 나옴 (스크롤 오작동 방지, 모바일 권장)
-# False = 일정을 누르면 바로 팝업이 열림
-MOBILE_CONFIRM = True
 
 hero()
 
@@ -162,6 +159,7 @@ else:
         "height": 650,
         "fixedWeekCount": False,
         "dayMaxEvents": 3,
+        "moreLinkClick": "none",
         "moreLinkText": "개 더보기",
         "headerToolbar": {"left": "prev,next today", "center": "title", "right": ""},
         "buttonText": {"today": "오늘"},
@@ -173,14 +171,19 @@ else:
         .fc-col-header-cell-cushion {color: #1b3a5c; text-decoration: none;}
         .fc-day-sun .fc-daygrid-day-number, .fc-day-sun .fc-col-header-cell-cushion {color: #d6336c !important;}
         .fc-day-sat .fc-daygrid-day-number, .fc-day-sat .fc-col-header-cell-cushion {color: #1c64f2 !important;}
-        .fc-daygrid-day-number {text-decoration: none; font-weight: 700;}
+        .fc-daygrid-day-number {text-decoration: none; font-weight: 700; pointer-events: none;}
         .fc-day-today {background: #fff3bf !important;}
-        .fc-event {cursor: pointer; border-radius: 8px; padding: 0 3px; font-size: 0.78rem;}
+        .fc-daygrid-day-frame {cursor: default;}
+        .fc-event {cursor: pointer; border-radius: 8px; padding: 1px 4px; font-size: 0.8rem;}
         .fc-event-time {font-weight: 400; margin-right: 3px;}
         .fc-event-title {overflow: hidden; text-overflow: ellipsis;}
+        .fc-more-link {pointer-events: none; color: #868e96;}
         .fc-button-primary {background: #4a9fe0 !important; border-color: #4a9fe0 !important;}
+        @media (max-width: 640px) {
+          .fc-event {padding: 3px 4px; font-size: 0.78rem; margin-bottom: 2px;}
+        }
     """
-    # 날짜 칸 클릭(dateClick)은 받지 않음: 스크롤 중 스치는 터치가 팝업을 여는 문제 방지
+    # 날짜 칸 클릭(dateClick)은 받지 않음: 일정 칩을 눌렀을 때만 팝업이 열림
     state = st_calendar(events=cal_events, options=options, custom_css=custom_css,
                         callbacks=["eventClick"], key="home_cal")
 
@@ -191,31 +194,10 @@ else:
         clicked_iso = start[:10] or None
         click_id = (str(ec.get("event", {}).get("id", "")), str(ec.get("timeStamp", "")))
 
-    # 새로운 클릭일 때만 처리 (이미 처리한 클릭은 무시)
+    # 새로운 클릭일 때만 팝업을 연다 (이미 처리한 클릭은 무시)
     if clicked_iso and click_id != st.session_state.get("last_click_id"):
         st.session_state["last_click_id"] = click_id
-        if MOBILE_CONFIRM:
-            st.session_state["pending_day"] = clicked_iso   # 확인 줄에 보관만 함
-        else:
-            show_day(clicked_iso)
-
-    # 선택한 날짜 확인 줄 (스치기로는 팝업이 열리지 않음)
-    if MOBILE_CONFIRM:
-        pend = st.session_state.get("pending_day")
-        c1, c2, c3 = st.columns([3, 1, 1])
-        if pend:
-            d_ = date.fromisoformat(pend)
-            n = len(day_events.get(pend, [])) + len(day_bds.get(pend, []))
-            c1.markdown(
-                f"<div style='padding:.55rem .2rem'>📌 <b>{d_.month}월 {d_.day}일 "
-                f"({'월화수목금토일'[d_.weekday()]})</b> · {n}건</div>", unsafe_allow_html=True)
-            if c2.button("열기", key="open_pending", type="primary", use_container_width=True):
-                show_day(pend)
-            if c3.button("닫기", key="clear_pending", use_container_width=True):
-                st.session_state.pop("pending_day", None)
-                st.rerun()
-        else:
-            c1.caption("일정을 누르면 여기에 표시되고, '열기'를 누르면 자세히 볼 수 있습니다.")
+        show_day(clicked_iso)
 
     # 일정이 없는 날도 보고 싶을 때: 날짜 직접 선택
     with st.expander("📆 날짜를 골라서 보기"):
