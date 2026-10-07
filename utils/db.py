@@ -13,23 +13,37 @@ def get_client():
     return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
 
 
-def fetch(table: str, order_by: str | None = None, desc: bool = False) -> pd.DataFrame:
+# ---------- 읽기 (30초 캐시) ----------
+@st.cache_data(ttl=30, show_spinner=False)
+def _fetch_cached(table: str, order_by: str | None, desc: bool) -> pd.DataFrame:
     q = get_client().table(table).select("*")
     if order_by:
         q = q.order(order_by, desc=desc)
     return pd.DataFrame(q.execute().data)
 
 
-def insert(table: str, row: dict):
-    return get_client().table(table).insert(row).execute()
+def fetch(table: str, order_by: str | None = None, desc: bool = False) -> pd.DataFrame:
+    # 복사본을 돌려줘서, 화면에서 표를 고쳐도 캐시가 오염되지 않게 함
+    return _fetch_cached(table, order_by, desc).copy()
+
+
+# ---------- 쓰기 (저장 직후 캐시 비움) ----------
+def insert(table: str, row):
+    res = get_client().table(table).insert(row).execute()
+    _fetch_cached.clear()
+    return res
 
 
 def update(table: str, row_id: str, row: dict):
-    return get_client().table(table).update(row).eq("id", row_id).execute()
+    res = get_client().table(table).update(row).eq("id", row_id).execute()
+    _fetch_cached.clear()
+    return res
 
 
 def delete(table: str, row_id: str):
-    return get_client().table(table).delete().eq("id", row_id).execute()
+    res = get_client().table(table).delete().eq("id", row_id).execute()
+    _fetch_cached.clear()
+    return res
 
 
 # ---------- 사진 ----------
