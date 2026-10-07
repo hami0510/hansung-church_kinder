@@ -7,22 +7,6 @@ from utils.labels import class_label
 CAT_ICON = {"예배": "⛪", "행사": "🎈", "교사회의": "📋", "교육": "📖", "심방": "🏠", "기타": "⭐"}
 
 CSS = """
-/* ---- 클릭형 달력 ---- */
-.calwd {text-align: center; font-weight: 700; background: #cfe9fc; color: #1b3a5c;
-        border-radius: 8px; padding: 4px 0; font-size: 14px;}
-.st-key-calgrid [data-testid="stHorizontalBlock"] {flex-wrap: nowrap !important; gap: 3px !important;}
-.st-key-calgrid [data-testid="stColumn"], .st-key-calgrid [data-testid="column"] {
-  min-width: 0 !important; flex: 1 1 0 !important; width: auto !important;}
-.st-key-calgrid button {height: 88px; padding: 3px 5px; border-radius: 10px; overflow: hidden;
-                        align-items: flex-start; justify-content: flex-start;}
-.st-key-calgrid button > div {width: 100%; justify-content: flex-start;}
-.st-key-calgrid button p {white-space: pre; text-align: left; font-size: 12px; line-height: 1.35;
-                          overflow: hidden; text-overflow: ellipsis; width: 100%; margin: 0;}
-@media (max-width: 640px) {
-  .calwd {font-size: 12px; padding: 3px 0;}
-  .st-key-calgrid button {height: 58px; padding: 2px 3px;}
-  .st-key-calgrid button p {font-size: 10px;}
-}
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap');
 
