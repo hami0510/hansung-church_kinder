@@ -52,17 +52,6 @@ def fmt_time(v):
     return str(v)[:5]
 
 
-def esc_md(text: str) -> str:
-    """버튼 글자(마크다운)에서 서식 문자를 무력화"""
-    for ch in "*_`[]~":
-        text = text.replace(ch, "")
-    return text
-
-
-def short(text: str, n: int = 8) -> str:
-    return text if len(text) <= n else text[:n] + "…"
-
-
 ev = fetch("events", "event_date")
 if not ev.empty:
     ev["event_date"] = pd.to_datetime(ev["event_date"]).dt.date
@@ -113,14 +102,52 @@ with st.container(key="calnav"):
 
 # 날짜별 일정·생일 모으기
 day_events = {}
+by_day = {}
 if not ev.empty:
     d_series = pd.to_datetime(ev["event_date"])
     month_ev = ev[(d_series.dt.year == year) & (d_series.dt.month == month)]
     for _, r in month_ev.iterrows():
         day_events.setdefault(r["event_date"].day, []).append(r)
+        title = str(r["title"])
+        cat = r.get("category")
+        label = title if (not cat or cat == title) else f"{title}-{cat}"
+        if r["time_str"]:
+            label = f"{r['time_str']} {label}"
+        by_day.setdefault(r["event_date"].day, []).append(label)
+
 day_bds = in_month(people, year, month)
+for day, plist in day_bds.items():
+    for p in plist:
+        by_day.setdefault(day, []).append(f"🎂 {p['name']}")
+
+MAX_SHOW = 2
+cal = calendar.Calendar(firstweekday=6)  # 일요일 시작
+weeks = cal.monthdayscalendar(year, month)
+
+rows = ["<table class='kcal'><tr>"
+        "<th class='sun'>일</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th><th class='sat'>토</th></tr>"]
+for wk in weeks:
+    rows.append("<tr>")
+    for i, d in enumerate(wk):
+        if d == 0:
+            rows.append("<td></td>")
+            continue
+        cls = "d sun" if i == 0 else ("d sat" if i == 6 else "d")
+        td_cls = "today" if (year, month, d) == (today.year, today.month, today.day) else ""
+        items = by_day.get(d, [])
+        body = "".join(f"<div class='ev'>{html.escape(x)}</div>" for x in items[:MAX_SHOW])
+        if len(items) > MAX_SHOW:
+            body += f"<div class='more'>+{len(items) - MAX_SHOW}개 더보기</div>"
+        if items:  # 모바일용 점 표시
+            body += "<div class='dots'>" + "<span class='dot'></span>" * min(len(items), 4) + "</div>"
+        rows.append(f"<td class='{td_cls}'><div class='{cls}'>{d}</div>{body}</td>")
+    rows.append("</tr>")
+rows.append("</table>")
+
+st.markdown("".join(rows), unsafe_allow_html=True)
 
 
+# ---------- 날짜 선택 → 팝업 ----------
 @st.dialog("📅 일정 보기")
 def show_day(y: int, m: int, d: int):
     wd = "월화수목금토일"[date(y, m, d).weekday()]
@@ -158,45 +185,19 @@ def show_day(y: int, m: int, d: int):
     st.markdown("".join(cards), unsafe_allow_html=True)
 
 
-clicked = None
-cal = calendar.Calendar(firstweekday=6)  # 일요일 시작
-weeks = cal.monthdayscalendar(year, month)
+active_days = sorted(set(day_events) | set(day_bds))
+if active_days:
+    def fmt_day(d):
+        wd = "월화수목금토일"[date(year, month, d).weekday()]
+        names = [str(r["title"]) for r in day_events.get(d, [])]
+        names += [f"🎂{p['name']}" for p in day_bds.get(d, [])]
+        return f"{month}/{d}({wd}) · " + ", ".join(names[:2]) + (" …" if len(names) > 2 else "")
 
-with st.container(key="calgrid"):
-    head = st.columns(7)
-    for i, name in enumerate(["일", "월", "화", "수", "목", "금", "토"]):
-        color = "#d6336c" if i == 0 else ("#1c64f2" if i == 6 else "#1b3a5c")
-        head[i].markdown(f"<div class='calwd' style='color:{color}'>{name}</div>",
-                         unsafe_allow_html=True)
-
-    for w_idx, wk in enumerate(weeks):
-        cols = st.columns(7)
-        for i, d in enumerate(wk):
-            if d == 0:
-                cols[i].write("")
-                continue
-            is_today = (year, month, d) == (today.year, today.month, today.day)
-            evs = day_events.get(d, [])
-            bds = day_bds.get(d, [])
-
-            day_txt = f"{d}" if is_today else (
-                f":red[{d}]" if i == 0 else (f":blue[{d}]" if i == 6 else f"**{d}**"))
-            lines = []
-            for r in evs[:2]:
-                lines.append("· " + esc_md(short(str(r["title"]))))
-            if bds and len(lines) < 2:
-                lines.append("🎂 " + esc_md(short(str(bds[0]["name"]), 5))
-                             + (f" 외{len(bds) - 1}" if len(bds) > 1 else ""))
-            total = len(evs) + len(bds)
-            shown = len(lines) if not bds else (len(evs[:2]) + (1 if len(evs) < 2 else 0))
-            if total > 2 and len(evs) > 2:
-                lines.append(f"+{len(evs) - 2}개")
-            label = day_txt + ("\n" + "\n".join(lines) if lines else "")
-
-            if cols[i].button(label, key=f"day_{year}_{month}_{d}",
-                              type="primary" if is_today else "secondary",
-                              use_container_width=True):
-                clicked = d
-
-if clicked:
-    show_day(year, month, clicked)
+    c1, c2 = st.columns([4, 1])
+    pick = c1.selectbox("일정 자세히 보기", active_days, format_func=fmt_day,
+                        index=None, placeholder="날짜를 선택하면 팝업으로 열립니다",
+                        key=f"day_pick_{year}_{month}")
+    if pick is not None:
+        show_day(year, month, pick)
+else:
+    st.caption("이 달에는 등록된 일정이 없습니다.")
