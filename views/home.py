@@ -1,9 +1,9 @@
 import html
-from datetime import date
+from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 from utils.db import fetch
-from utils.ui import hero
+from utils.ui import hero, stats_line
 from utils.notice_ui import notice_cards
 from utils.birthdays import collect, upcoming
 
@@ -21,17 +21,6 @@ hero()
 
 today = date.today()
 is_admin = st.session_state.get("role") == "admin"
-
-# ---------- 공지 ----------
-try:
-    nt = fetch("notices", "created_at", desc=True)
-except Exception:
-    nt = pd.DataFrame()
-if not nt.empty:
-    nt["_pin"] = nt["pinned"].apply(lambda v: str(v).lower() == "true")
-    nt = nt.sort_values(["_pin", "created_at"], ascending=[False, False])
-    st.subheader("📢 공지")
-    notice_cards(nt.head(3))
 
 
 def fmt_time(v):
@@ -57,6 +46,32 @@ for df_ in (children, teachers):
             df_[col] = None
 show_children = SHOW_CHILD_BIRTHDAY_TO_ALL or is_admin
 people_all = collect(children if show_children else None, teachers)
+
+# ---------- 현황 한 줄 ----------
+n_children = int((children["is_active"] == True).sum()) if not children.empty else 0
+n_teachers = int((teachers["is_active"] == True).sum()) if not teachers.empty else 0
+week_end = today + timedelta(days=7)
+n_events = 0
+if not ev.empty:
+    n_events = int(((ev["event_date"] >= today) & (ev["event_date"] <= week_end)).sum())
+n_bday = len(upcoming(people_all, today, days=7))
+stats_line([
+    ("👧", "재적 아동", f"{n_children}명"),
+    ("👩‍🏫", "교사", f"{n_teachers}명"),
+    ("📅", "이번 주 일정", f"{n_events}건"),
+    ("🎂", "이번 주 생일", f"{n_bday}명"),
+])
+
+# ---------- 공지 ----------
+try:
+    nt = fetch("notices", "created_at", desc=True)
+except Exception:
+    nt = pd.DataFrame()
+if not nt.empty:
+    nt["_pin"] = nt["pinned"].apply(lambda v: str(v).lower() == "true")
+    nt = nt.sort_values(["_pin", "created_at"], ascending=[False, False])
+    st.subheader("📢 공지")
+    notice_cards(nt.head(3))
 
 # ---------- 달력용 데이터 ----------
 cal_events = []
