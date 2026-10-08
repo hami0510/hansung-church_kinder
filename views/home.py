@@ -12,10 +12,17 @@ try:
 except Exception:
     st_calendar = None
 
+try:
+    import holidays as _holidays
+except Exception:
+    _holidays = None
+
 # 아동 생일(이름·반만)을 일반 방문자에게도 보여줄지 (False = 관리자만)
 SHOW_CHILD_BIRTHDAY_TO_ALL = True
 # 다가오는 생일을 며칠 앞까지 보여줄지
 UPCOMING_DAYS = 30
+# 달력에 공휴일을 표시할지
+SHOW_HOLIDAYS = True
 
 hero()
 
@@ -46,6 +53,16 @@ for df_ in (children, teachers):
             df_[col] = None
 show_children = SHOW_CHILD_BIRTHDAY_TO_ALL or is_admin
 people_all = collect(children if show_children else None, teachers)
+
+# 공휴일 (대체공휴일 포함, 앞뒤 해까지)
+holiday_map = {}  # "YYYY-MM-DD" -> 공휴일 이름
+if SHOW_HOLIDAYS and _holidays is not None:
+    try:
+        kr = _holidays.country_holidays(
+            "KR", years=[today.year - 1, today.year, today.year + 1], language="ko")
+        holiday_map = {d.isoformat(): str(n) for d, n in kr.items()}
+    except Exception:
+        holiday_map = {}
 
 # ---------- 현황 한 줄 ----------
 n_children = int((children["is_active"] == True).sum()) if not children.empty else 0
@@ -90,6 +107,14 @@ if not ev.empty:
             "backgroundColor": "#dff0ff", "borderColor": "#bfe0fa", "textColor": "#1b3a5c",
         })
 
+# 공휴일 칩 (눌러도 팝업 없음: id가 hol_ 로 시작)
+for iso, name in holiday_map.items():
+    cal_events.append({
+        "id": f"hol_{iso}", "title": f"🇰🇷 {name}", "start": iso, "allDay": True,
+        "backgroundColor": "#ffe3e3", "borderColor": "#ffc9c9", "textColor": "#c92a2a",
+        "classNames": ["kholiday"],
+    })
+
 # 달력의 생일 칩(🎂)과 팝업용 생일 목록: 앞뒤 해를 포함해 3개 연도 분량
 day_bds = {}  # "YYYY-MM-DD" -> 생일 목록
 for y in (today.year - 1, today.year, today.year + 1):
@@ -112,6 +137,10 @@ def show_day(iso: str):
     d = date.fromisoformat(iso)
     wd = "월화수목금토일"[d.weekday()]
     st.markdown(f"### {d.month}월 {d.day}일 ({wd})")
+    if iso in holiday_map:
+        st.markdown(
+            f"<div style='color:#c92a2a;font-weight:700;margin-bottom:.4rem'>"
+            f"🇰🇷 {html.escape(holiday_map[iso])}</div>", unsafe_allow_html=True)
     evs = day_events.get(iso, [])
     bds = day_bds.get(iso, [])
     if not evs and not bds:
@@ -175,6 +204,7 @@ else:
         .fc-day-today {background: #fff3bf !important;}
         .fc-daygrid-day-frame {cursor: default;}
         .fc-event {cursor: pointer; border-radius: 8px; padding: 1px 4px; font-size: 0.8rem;}
+        .fc-event.kholiday {cursor: default; font-weight: 700;}
         .fc-event-time {font-weight: 400; margin-right: 3px;}
         .fc-event-title {overflow: hidden; text-overflow: ellipsis;}
         .fc-more-link {pointer-events: none; color: #868e96;}
@@ -190,9 +220,11 @@ else:
     clicked_iso, click_id = None, None
     if state and state.get("eventClick"):
         ec = state["eventClick"]
+        ev_id = str(ec.get("event", {}).get("id", ""))
         start = str(ec.get("event", {}).get("start", ""))
-        clicked_iso = start[:10] or None
-        click_id = (str(ec.get("event", {}).get("id", "")), str(ec.get("timeStamp", "")))
+        if not ev_id.startswith("hol_"):  # 공휴일 칩은 팝업 없음
+            clicked_iso = start[:10] or None
+            click_id = (ev_id, str(ec.get("timeStamp", "")))
 
     # 새로운 클릭일 때만 팝업을 연다 (이미 처리한 클릭은 무시)
     if clicked_iso and click_id != st.session_state.get("last_click_id"):
