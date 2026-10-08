@@ -4,3 +4,4 @@ pandas
 pillow
 openpyxl
 streamlit-calendar
+holidays
