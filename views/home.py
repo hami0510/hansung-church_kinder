@@ -23,6 +23,8 @@ SHOW_CHILD_BIRTHDAY_TO_ALL = True
 UPCOMING_DAYS = 30
 # 달력에 공휴일을 표시할지
 SHOW_HOLIDAYS = True
+# 공휴일 이름 바꾸기 (왼쪽: 패키지가 주는 이름 → 오른쪽: 화면에 표시할 이름)
+RENAME = {"기독탄신일": "성탄절", "신정연휴": "신정"}
 
 hero()
 
@@ -60,7 +62,7 @@ if SHOW_HOLIDAYS and _holidays is not None:
     try:
         kr = _holidays.country_holidays(
             "KR", years=[today.year - 1, today.year, today.year + 1], language="ko")
-        holiday_map = {d.isoformat(): str(n) for d, n in kr.items()}
+        holiday_map = {d.isoformat(): RENAME.get(str(n), str(n)) for d, n in kr.items()}
     except Exception:
         holiday_map = {}
 
@@ -107,12 +109,16 @@ if not ev.empty:
             "backgroundColor": "#dff0ff", "borderColor": "#bfe0fa", "textColor": "#1b3a5c",
         })
 
-# 공휴일 칩 (눌러도 팝업 없음: id가 hol_ 로 시작)
+# 공휴일: 칩(눌러도 팝업 없음, id가 hol_ 로 시작) + 칸 배경(분홍)
 for iso, name in holiday_map.items():
     cal_events.append({
-        "id": f"hol_{iso}", "title": f"🇰🇷 {name}", "start": iso, "allDay": True,
+        "id": f"hol_{iso}", "title": name, "start": iso, "allDay": True,
         "backgroundColor": "#ffe3e3", "borderColor": "#ffc9c9", "textColor": "#c92a2a",
         "classNames": ["kholiday"],
+    })
+    cal_events.append({
+        "id": f"holbg_{iso}", "start": iso, "allDay": True, "display": "background",
+        "backgroundColor": "#fff0f0",
     })
 
 # 달력의 생일 칩(🎂)과 팝업용 생일 목록: 앞뒤 해를 포함해 3개 연도 분량
@@ -140,7 +146,7 @@ def show_day(iso: str):
     if iso in holiday_map:
         st.markdown(
             f"<div style='color:#c92a2a;font-weight:700;margin-bottom:.4rem'>"
-            f"🇰🇷 {html.escape(holiday_map[iso])}</div>", unsafe_allow_html=True)
+            f"{html.escape(holiday_map[iso])}</div>", unsafe_allow_html=True)
     evs = day_events.get(iso, [])
     bds = day_bds.get(iso, [])
     if not evs and not bds:
@@ -194,6 +200,7 @@ else:
         "buttonText": {"today": "오늘"},
         "eventTimeFormat": {"hour": "2-digit", "minute": "2-digit", "hour12": False},
     }
+    # 공휴일 칸(분홍 배경)의 날짜 숫자를 빨강으로: 배경 이벤트가 있는 칸을 :has()로 찾음
     custom_css = """
         .fc-toolbar-title {font-size: 1.3rem !important; font-weight: 700;}
         .fc-col-header-cell {background: #cfe9fc;}
@@ -201,6 +208,7 @@ else:
         .fc-day-sun .fc-daygrid-day-number, .fc-day-sun .fc-col-header-cell-cushion {color: #d6336c !important;}
         .fc-day-sat .fc-daygrid-day-number, .fc-day-sat .fc-col-header-cell-cushion {color: #1c64f2 !important;}
         .fc-daygrid-day-number {text-decoration: none; font-weight: 700; pointer-events: none;}
+        .fc-daygrid-day:has(.kholiday) .fc-daygrid-day-number {color: #e03131 !important;}
         .fc-day-today {background: #fff3bf !important;}
         .fc-daygrid-day-frame {cursor: default;}
         .fc-event {cursor: pointer; border-radius: 8px; padding: 1px 4px; font-size: 0.8rem;}
@@ -222,7 +230,7 @@ else:
         ec = state["eventClick"]
         ev_id = str(ec.get("event", {}).get("id", ""))
         start = str(ec.get("event", {}).get("start", ""))
-        if not ev_id.startswith("hol_"):  # 공휴일 칩은 팝업 없음
+        if not ev_id.startswith("hol"):  # 공휴일 칩·배경은 팝업 없음
             clicked_iso = start[:10] or None
             click_id = (ev_id, str(ec.get("timeStamp", "")))
 
