@@ -49,7 +49,6 @@ sunday = c2.date_input("주일 날짜", value=upcoming, key="rg_date")
 mem = fetch("roster_members", "sort_no")
 cls = fetch("roster_classes")
 att = fetch("roster_attendance")
-vis = fetch("roster_visitors")
 
 if mem.empty:
     mem = pd.DataFrame(columns=["id", "part", "grade", "class_no", "name", "sort_no"])
@@ -72,12 +71,6 @@ for _, a in att[att["sunday_date"] == sunday].iterrows():
     status[a["member_id"]] = (bool(a["present"]),
                               a["reason"] if isinstance(a.get("reason"), str) else "")
 
-visitors = 0
-if not vis.empty:
-    vv = vis[(vis["part"] == part) & (pd.to_datetime(vis["sunday_date"]).dt.date == sunday)]
-    if not vv.empty:
-        visitors = int(vv.iloc[0]["count"])
-
 
 def members_of(grade, no):
     return mem[(mem["grade"] == grade) & (mem["class_no"] == no)].sort_values("sort_no")
@@ -97,6 +90,8 @@ def class_numbers(grade):
     return [n for n in nos if n > 0]
 
 
+names_of = {a: f"{b} {a}" for a, b, _ in GRADES}
+
 # ---------------------------------------------------------------- 화면 선택
 VIEWS = ["출석부"] + (["명단 관리"] if is_admin else [])
 if st.session_state.get("rg_view") not in VIEWS:
@@ -109,7 +104,6 @@ if view == "명단 관리" and is_admin:
     st.caption("담임샘과 학생 이름을 쉼표 또는 줄바꿈으로 구분해 입력하세요. "
                "저장하면 해당 반이 **입력한 내용으로 바뀝니다.** "
                "(빠진 이름은 삭제되고, 그 이름의 출결 기록도 함께 지워집니다.)")
-    names_of = {a: f"{b} {a}" for a, b, _ in GRADES}
     max_no = {g_: max(DEFAULT_CLASSES.get(part, {}).get(g_, 0), 5) for g_, _, _ in GRADES}
     options = ([(g_, n_) for g_, _, _ in GRADES for n_ in range(1, max_no[g_] + 1)]
                + [("새싹", NONE_CLASS), ("스탭", NONE_CLASS)])
@@ -163,8 +157,7 @@ if view == "명단 관리" and is_admin:
                     insert("roster_members", {"part": part, "grade": grade_name,
                                               "class_no": cls_no, "name": nm, "sort_no": i})
 
-        stu_names = parse_names(stu_txt)
-        sync(g2, cur_stu, stu_names)
+        sync(g2, cur_stu, parse_names(stu_txt))
         if has_teacher:
             t_names = parse_names(tch_txt)
             sync(tg(g2), cur_tch, t_names)
@@ -274,7 +267,6 @@ if not mobile:
     stu_en += len(sp)
     stu_pr += sp_pr
     rows.append(make_row(age="학생합계", en=stu_en, pr=stu_pr, bg="#e9ecef", nbg="#e9ecef"))
-    rows.append(make_row(age="방문자", pr=visitors, bg="#ffffff"))
 
     stf = members_of("스탭", NONE_CLASS)
     stf_pr = count_pr(stf)
@@ -288,7 +280,7 @@ if not mobile:
     tch_en = len(tch_all) + len(stf)
     tch_pr = count_pr(tch_all) + stf_pr
     rows.append(make_row(age="교사합계", en=tch_en, pr=tch_pr, bg="#e9ecef", nbg="#e9ecef"))
-    rows.append(make_row(age="전체합계", pr=stu_pr + tch_pr + visitors, bg="#e9ecef", nbg="#e9ecef"))
+    rows.append(make_row(age="전체합계", pr=stu_pr + tch_pr, bg="#e9ecef", nbg="#e9ecef"))
 
 else:
     # ---------------------------------------------------------------- 모바일 표 (5칸)
@@ -329,7 +321,6 @@ else:
     stu_pr += sp_pr
     rows.append(make_row(lab="학생합계", lbg="#e9ecef", bg="#e9ecef", nbg="#e9ecef",
                          cnt=f"{stu_pr}/{stu_en}"))
-    rows.append(make_row(lab="방문자", lbg="#ffffff", cnt=str(visitors)))
 
     stf = members_of("스탭", NONE_CLASS)
     stf_pr = count_pr(stf)
@@ -345,7 +336,7 @@ else:
     rows.append(make_row(lab="교사합계", lbg="#e9ecef", bg="#e9ecef", nbg="#e9ecef",
                          cnt=f"{tch_pr}/{tch_en}"))
     rows.append(make_row(lab="전체합계", lbg="#e9ecef", bg="#e9ecef", nbg="#e9ecef",
-                         cnt=str(stu_pr + tch_pr + visitors)))
+                         cnt=str(stu_pr + tch_pr)))
 
 df = pd.DataFrame(rows)
 df["pick"] = ""
@@ -493,13 +484,40 @@ if is_admin:
             attend_dialog(mid, label, sunday.isoformat(),
                           (s[0] if s else None), (s[1] if s else ""))
 
-    # 방문자 수 (관리자)
+    # ------------------------------------------------------------ 새신자 추가 (관리자)
     st.divider()
-    with st.form(f"vis_{part}_{sunday}"):
-        v_new = st.number_input("방문자 수", min_value=0, value=visitors, step=1)
-        v_saved = st.form_submit_button("방문자 수 저장", use_container_width=True)
-    if v_saved:
-        upsert("roster_visitors", [{"part": part, "sunday_date": sunday.isoformat(),
-                                    "count": int(v_new)}], "part,sunday_date")
-        st.session_state["flash"] = "방문자 수를 저장했습니다."
-        st.rerun()
+    st.markdown("#### 🌟 새신자 추가")
+    st.caption("이름과 반을 고르면 그 반 학생 맨 끝에 추가되고, 선택한 주일 날짜 출석으로 기록됩니다.")
+    new_opts = [(g_, n_) for g_, _, _ in GRADES for n_ in class_numbers(g_)] + [("새싹", NONE_CLASS)]
+
+    def new_label(o):
+        return "🌱 새싹반" if o[0] == "새싹" else f"{names_of[o[0]]} {o[1]}반"
+
+    with st.form(f"newcomer_{part}", clear_on_submit=True):
+        nc1, nc2 = st.columns([2, 3])
+        new_name = nc1.text_input("새신자 이름")
+        new_cls = nc2.selectbox("반", new_opts, format_func=new_label)
+        add_ok = st.form_submit_button("새신자 추가", type="primary", use_container_width=True)
+    if add_ok:
+        nm = new_name.strip()
+        g_, n_ = new_cls
+        if not nm:
+            st.error("이름을 입력해 주세요.")
+        elif nm in set(members_of(g_, n_)["name"]):
+            st.warning(f"{new_label(new_cls)}에 이미 '{nm}'이(가) 있습니다.")
+        else:
+            order = len(members_of(g_, n_))
+            res = db.get_client().table("roster_members").insert(
+                {"part": part, "grade": g_, "class_no": None if n_ == NONE_CLASS else n_,
+                 "name": nm, "sort_no": order}).execute()
+            db._fetch_cached.clear()
+            try:
+                new_id = res.data[0]["id"]
+                upsert("roster_attendance",
+                       [{"member_id": new_id, "sunday_date": sunday.isoformat(),
+                         "present": True, "reason": None}], "member_id,sunday_date")
+            except Exception:
+                pass
+            st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
+            st.session_state["flash"] = f"새신자 '{nm}'을(를) {new_label(new_cls)}에 추가했습니다. (출석 처리됨)"
+            st.rerun()
