@@ -1,6 +1,6 @@
+import hmac
 import pandas as pd
 import streamlit as st
-from utils.auth import can_manage, can_view_requests
 from utils.db import fetch, insert, update, delete
 from utils.notify import notify
 from utils.passcode import valid_pin, make_hash, check, locked, add_fail, reset_fail
@@ -8,20 +8,21 @@ from utils.passcode import valid_pin, make_hash, check, locked, add_fail, reset_
 CATS = ["아이", "가정", "교사", "부서", "기타"]
 STATUS = ["접수", "기도중", "응답"]
 ICON = {"접수": "🆕", "기도중": "🙏", "응답": "🌈"}
+MAX_FAILS = 5
 
 st.title("🙏 기도제목 요청")
 
 if "flash" in st.session_state:
     st.success(st.session_state.pop("flash"))
 
-manage = can_manage()
-view_list = can_view_requests()
+is_pastor = st.session_state.get("pastor_ok") is True
 
-names = ["기도제목 올리기", "내 기도제목 수정·삭제"] + (["기도제목 목록"] if view_list else [])
+names = ["기도제목 올리기", "내 기도제목 수정·삭제", "🔒 목사님 확인"]
 tabs = st.tabs(names)
 
 # ---------------------------------------------------------------- 올리기
 with tabs[0]:
+    st.caption("기도제목은 목사님만 확인합니다. 아이 실명이나 가정 사정은 필요한 만큼만 적어 주세요.")
     with st.form("prayer_form", clear_on_submit=True):
         requester = st.text_input("선생님 이름 *")
         pin = st.text_input("수정·삭제용 비밀번호 (숫자 4자리) *", type="password", max_chars=4,
@@ -73,7 +74,7 @@ with tabs[1]:
                 first = str(r["content"]).replace("\n", " ")[:20]
                 with st.expander(f"{ICON[stt]} {r['_t']:%m/%d %H:%M} · {r['category']} · {first}"):
                     if stt != "접수":
-                        st.info("이미 기도 중이거나 응답된 기도제목이라 수정·삭제할 수 없습니다. 관리자에게 문의해 주세요.")
+                        st.info("이미 기도 중이거나 응답된 기도제목이라 수정·삭제할 수 없습니다.")
                         st.write(r["content"])
                         continue
                     with st.form(f"pedit_{rid}"):
@@ -98,9 +99,39 @@ with tabs[1]:
     else:
         st.info("이름과 비밀번호 4자리를 입력하면 내 기도제목이 나타납니다.")
 
-# ---------------------------------------------------------------- 목록 (관리자)
-if view_list:
-    with tabs[2]:
+# ---------------------------------------------------------------- 목사님 확인 (목사님 전용)
+with tabs[2]:
+    if not is_pastor:
+        st.caption("기도제목 목록은 목사님만 볼 수 있습니다. (총무·관리자도 열람할 수 없습니다.)")
+        pastor_pw = None
+        try:
+            pastor_pw = st.secrets["auth"]["pastor_password"]
+        except Exception:
+            pass
+        if not pastor_pw:
+            st.error("목사님 비밀번호가 아직 설정되지 않았습니다. (Secrets의 [auth] pastor_password)")
+        elif st.session_state.get("pastor_fails", 0) >= MAX_FAILS:
+            st.error("시도 횟수를 초과했습니다. 페이지를 새로고침한 뒤 다시 시도하세요.")
+        else:
+            with st.form("pastor_login"):
+                pw = st.text_input("목사님 비밀번호", type="password")
+                go = st.form_submit_button("확인", use_container_width=True)
+            if go:
+                if hmac.compare_digest(pw, pastor_pw):
+                    st.session_state["pastor_ok"] = True
+                    st.session_state["pastor_fails"] = 0
+                    st.rerun()
+                else:
+                    st.session_state["pastor_fails"] = st.session_state.get("pastor_fails", 0) + 1
+                    left = MAX_FAILS - st.session_state["pastor_fails"]
+                    st.error(f"비밀번호가 올바르지 않습니다. (남은 시도 {left}회)")
+    else:
+        top1, top2 = st.columns([3, 1])
+        top1.success("목사님 확인 모드입니다.")
+        if top2.button("🔒 잠그기", use_container_width=True):
+            st.session_state["pastor_ok"] = False
+            st.rerun()
+
         req = fetch("prayer_requests", "created_at", desc=True)
         if req.empty:
             st.info("접수된 기도제목이 없습니다.")
@@ -118,15 +149,17 @@ if view_list:
                     rn = r.get("requester_name") if isinstance(r.get("requester_name"), str) else "(미입력)"
                     st.write(f"**선생님**: {rn}")
                     st.write(r["content"])
-                    if manage:
-                        new_status = st.selectbox("상태", STATUS, index=STATUS.index(stt),
-                                                  key=f"ps_{r['id']}")
-                        b1, b2 = st.columns(2)
-                        if b1.button("저장", key=f"psave_{r['id']}", use_container_width=True):
-                            update("prayer_requests", r["id"], {"status": new_status})
-                            st.session_state["flash"] = "저장했습니다."
-                            st.rerun()
-                        if b2.button("삭제", key=f"pdel_{r['id']}", use_container_width=True):
+                    new_status = st.selectbox("상태", STATUS, index=STATUS.index(stt),
+                                              key=f"ps_{r['id']}")
+                    b1, b2 = st.columns(2)
+                    if b1.button("저장", key=f"psave_{r['id']}", use_container_width=True):
+                        update("prayer_requests", r["id"], {"status": new_status})
+                        st.session_state["flash"] = "저장했습니다."
+                        st.rerun()
+                    with b2.popover("삭제", use_container_width=True):
+                        ok = st.checkbox("삭제에 동의합니다", key=f"pdok_{r['id']}")
+                        if st.button("삭제하기", key=f"pdel_{r['id']}", type="primary",
+                                     disabled=not ok, use_container_width=True):
                             delete("prayer_requests", r["id"])
                             st.session_state["flash"] = "기도제목을 삭제했습니다."
                             st.rerun()
