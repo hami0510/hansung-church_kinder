@@ -25,25 +25,21 @@ st.markdown("""
 .hero-sub {opacity: .75;}
 .hsec {font-size: .85rem; font-weight: 700; color: #6b7c93; margin: 0 0 .4rem .2rem;}
 
-/* 공지 상자: 배너·달력과 같은 하늘색 톤, 높이는 줄 수에 맞춰 자동 */
+/* 공지 상자: 버튼 줄만 사용 (겹치기 없음) */
 .st-key-nbox {border: 1px solid #d5e6f7 !important; border-radius: 16px !important;
-              background: #f6faff; padding: .25rem .5rem !important; margin-bottom: 1.2rem;}
-.st-key-nbox [data-testid="stVerticalBlock"] {gap: 0;}
-.st-key-nbox [data-testid="stElementContainer"] {margin: 0;}
-
-.nrow {display: flex; align-items: center; gap: .6rem; padding: 0 .5rem;
-       height: 2.8rem; box-sizing: border-box; border-bottom: 1px solid rgba(100,150,200,.18);}
-.nrow.last {border-bottom: none;}
-.nrow .nt {flex: 1; min-width: 0; text-align: left; font-weight: 400; color: #1b3a5c;
-           overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
-.nrow.pin .nt {font-weight: 700;}
-.nrow .nd {flex: 0 0 auto; font-size: .78rem; color: #8fa0b5;}
-.nwrap:hover .nrow {background: rgba(74,159,224,.10); border-radius: 10px; border-bottom-color: transparent;}
-
-.st-key-nbox [data-testid="stElementContainer"]:has(.stButton) {
-  position: relative; margin-top: -2.8rem; height: 2.8rem; z-index: 2;}
-.st-key-nbox .stButton, .st-key-nbox .stButton > button {width: 100%; height: 2.8rem;}
-.st-key-nbox .stButton > button {opacity: 0; cursor: pointer; border: none; padding: 0;}
+              background: #f6faff; padding: .3rem .4rem !important; margin-bottom: 1.2rem;}
+.st-key-nbox [data-testid="stVerticalBlock"] {gap: .1rem;}
+.st-key-nbox .stButton > button {
+  width: 100%; min-height: 2.8rem; border: none !important; background: transparent !important;
+  box-shadow: none !important; border-radius: 10px !important;
+  justify-content: flex-start !important; text-align: left !important; padding: .4rem .7rem;
+  font-weight: 400; color: #1b3a5c;}
+.st-key-nbox .stButton > button > div,
+.st-key-nbox .stButton > button p {
+  width: 100%; text-align: left !important; justify-content: flex-start !important;
+  margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.st-key-nbox .stButton > button:hover {background: rgba(74,159,224,.12) !important;}
+.st-key-nbox .stButton > button[kind="primary"] {color: #1b3a5c; font-weight: 700;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -99,8 +95,7 @@ if not nt.empty:
 
     st.markdown("<div class='hsec'>📢 공지</div>", unsafe_allow_html=True)
     with st.container(border=True, key="nbox"):
-        n_total = len(show)
-        for i, (_, r) in enumerate(show.iterrows()):
+        for _, r in show.iterrows():
             try:
                 when = pd.to_datetime(r["created_at"], utc=True).tz_convert("Asia/Seoul")
                 when_s = f"{when:%Y.%m.%d}"
@@ -108,13 +103,9 @@ if not nt.empty:
                 when_s = ""
             mark = "📌" if r["_pin"] else "📢"
             content = r["content"] if isinstance(r.get("content"), str) else ""
-            cls = ("pin " if r["_pin"] else "") + ("last" if i == n_total - 1 else "")
-            st.markdown(
-                f"<div class='nwrap'><div class='nrow {cls}'>"
-                f"<span class='nt'>{mark} {html.escape(str(r['title']))}</span>"
-                f"<span class='nd'>{html.escape(when_s)}</span></div></div>",
-                unsafe_allow_html=True)
-            if st.button(" ", key=f"notice_{r['id']}", use_container_width=True):
+            label = f"{mark}  {r['title']}   ·   {when_s}"
+            if st.button(label, key=f"notice_{r['id']}", use_container_width=True,
+                         type="primary" if r["_pin"] else "secondary"):
                 show_notice(str(r["title"]), when_s, content)
 
 # ---------- 달력용 데이터 ----------
