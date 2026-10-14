@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
-from st_aggrid import AgGrid, JsCode
+from st_aggrid import AgGrid, JsCode, GridUpdateMode
 from utils import db
 from utils.db import fetch, upsert
 
@@ -95,7 +95,7 @@ def count_pr(df):
 
 
 def make_row(**kw):
-    row = {"age": "", "no": "", "tch": "", "en": "", "pr": "", "bg": "#ffffff", "nbg": ""}
+    row = {"age": "", "no": "", "tch": "", "en": "", "pr": "", "bg": "#ffffff", "nbg": "", "pick": ""}
     for n in range(1, NC + 1):
         row[f"c{n}"] = ""
         row[f"i{n}"] = ""
@@ -136,7 +136,7 @@ for grade, age, color in GRADES:
                      tch=teacher_of(grade, no), en=en, pr=pr, bg=color)
         fill_names(r, kids)
         rows.append(r)
-        for extra in range(NC, len(kids), NC):      # 한 반이 칸 수를 넘으면 다음 줄에 이어서
+        for extra in range(NC, len(kids), NC):
             r2 = make_row(bg=color)
             fill_names(r2, kids, extra)
             rows.append(r2)
@@ -171,87 +171,4 @@ col_defs = [
     {"field": "tch", "headerName": "담임샘", "width": 110, "cellStyle": base_style, "sortable": False},
 ]
 for n in range(1, NC + 1):
-    style = JsCode(
-        "function(p){var s=p.data.s%d; var base={textAlign:'center',fontSize:'13px',cursor:'pointer'};"
-        "if(s==='on'){base.backgroundColor='#b2f2bb';base.color='#1b6e2a';base.fontWeight='700';}"
-        "else if(s==='off'){base.backgroundColor='#ffe3e3';base.color='#c92a2a';}"
-        "else if(p.data.nbg){base.backgroundColor=p.data.nbg;}"
-        "return base;}" % n)
-    col_defs.append({"field": f"c{n}", "headerName": str(n), "width": 92,
-                     "cellStyle": style, "sortable": False})
-    col_defs.append({"field": f"i{n}", "hide": True})
-    col_defs.append({"field": f"s{n}", "hide": True})
-col_defs += [
-    {"field": "en", "headerName": "재적", "width": 70, "cellStyle": base_style, "sortable": False},
-    {"field": "pr", "headerName": "출석", "width": 70, "cellStyle": base_style, "sortable": False},
-    {"field": "bg", "hide": True},
-    {"field": "nbg", "hide": True},
-]
-
-grid_options = {
-    "columnDefs": col_defs,
-    "rowHeight": 36,
-    "headerHeight": 36,
-    "suppressMovableColumns": True,
-    "suppressCellFocus": True,
-    "defaultColDef": {"resizable": False},
-}
-
-ver = st.session_state.get("rg_ver", 0)
-p = part.replace("부", "")
-st.markdown(f"**{sunday.year}년 유치{p}부 {sunday.month}월 {sunday.day}일 ({WD[sunday.weekday()]})**")
-
-resp = AgGrid(
-    df, gridOptions=grid_options, allow_unsafe_jscode=True,
-    update_on=["cellClicked"] if is_admin else [],
-    height=min(900, 40 + 36 * len(df) + 6), fit_columns_on_grid_load=False,
-    key=f"rg_grid_{part}_{sunday}_{ver}")
-
-
-@st.dialog("출결 처리")
-def attend_dialog(member_id: str, name: str, d_iso: str, cur_present, cur_reason: str):
-    d = date.fromisoformat(d_iso)
-    st.markdown(f"### {name}")
-    st.caption(f"{d.month}월 {d.day}일 ({WD[d.weekday()]}) · {part}")
-    choice = st.radio("출결", ["출석", "결석"], horizontal=True,
-                      index=1 if cur_present is False else 0, key=f"rgd_c_{member_id}")
-    reason = None
-    if choice == "결석":
-        opts = ["(사유 선택)"] + REASONS
-        idx = opts.index(cur_reason) if cur_reason in opts else 0
-        reason = st.selectbox("결석 사유", opts, index=idx, key=f"rgd_r_{member_id}")
-        if reason == "(사유 선택)":
-            reason = None
-    b1, b2 = st.columns(2)
-    if b1.button("저장", type="primary", use_container_width=True, key=f"rgd_s_{member_id}"):
-        upsert("roster_attendance",
-               [{"member_id": member_id, "sunday_date": d_iso, "present": choice == "출석",
-                 "reason": reason if choice == "결석" else None}], "member_id,sunday_date")
-        st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
-        st.rerun()
-    if b2.button("기록 지우기", use_container_width=True, key=f"rgd_d_{member_id}"):
-        db.get_client().table("roster_attendance").delete() \
-            .eq("member_id", member_id).eq("sunday_date", d_iso).execute()
-        db._fetch_cached.clear()
-        st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
-        st.rerun()
-
-
-if is_admin:
-    ev = None
-    try:
-        ev = resp["event_data"]
-    except Exception:
-        ev = getattr(resp, "event_data", None)
-    if ev:
-        col = str(ev.get("colId", ""))
-        data = ev.get("data") or {}
-        if col.startswith("c") and col[1:].isdigit():
-            mid = data.get(f"i{col[1:]}")
-            if mid:
-                # 다음 실행에서는 새 표로 시작해 같은 클릭이 반복되지 않게 함
-                st.session_state["rg_ver"] = ver + 1
-                s = status.get(mid)
-                name = str(ev.get("value", "")).split(" · ")[0]
-                attend_dialog(mid, name, sunday.isoformat(),
-                              (s[0] if s else None), (s[1] if s else ""))
+    style = J
