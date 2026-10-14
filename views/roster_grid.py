@@ -23,6 +23,28 @@ DEFAULT_CLASSES = {
 }
 STUDENT_GRADES = ["조이", "해피", "홀리", "새싹"]
 MOBILE_COLS = 5
+TOT = "#d6e4f2"       # 합계 줄 배경
+SUB = "#eef3f8"       # 소계 줄 배경
+BARMAP = {"#fff6c9": "#f2c744", "#e3e8fb": "#6c8eef", "#f6dff0": "#d67bb8",
+          "#e9f7ec": "#5cb87a", SUB: "#8795a8", TOT: "#4f6b88", "#fafbfc": "#a3b1c2"}
+
+st.markdown("""
+<style>
+.st-key-ctl {background: #f3f9ff; border: 1px solid #cfe5f8 !important; border-radius: 16px !important;
+             padding: .4rem .8rem !important; margin-bottom: .6rem;}
+.sumcards {display: flex; gap: .5rem; flex-wrap: wrap; margin: .2rem 0 .7rem;}
+.sumcard {flex: 1 1 110px; background: #fff; border: 1px solid #cfe5f8; border-radius: 14px;
+          padding: .55rem .8rem; text-align: center;}
+.sumcard .t {font-size: .74rem; color: #6b7c93; font-weight: 700;}
+.sumcard .v {font-size: 1.35rem; font-weight: 800; color: #1b3a5c; line-height: 1.3;}
+.sumcard .v small {font-size: .8rem; font-weight: 600; color: #8a97a8;}
+.sumcard.hi {background: #e6f9e9; border-color: #b2f2bb;}
+.sumcard.hi .v {color: #1b6e2a;}
+.rg-title {font-size: 1.05rem; font-weight: 800; color: #1b3a5c; margin: .2rem 0 .4rem;}
+.rg-legend {display: flex; gap: .5rem; flex-wrap: wrap; font-size: .78rem; margin: .4rem 0;}
+.rg-legend span {padding: .1rem .55rem; border-radius: 999px; font-weight: 700;}
+</style>
+""", unsafe_allow_html=True)
 
 
 def tg(grade):          # 담임 구분 이름 (예: 담임조이)
@@ -41,10 +63,11 @@ def parse_names(text: str):
 if "flash" in st.session_state:
     st.success(st.session_state.pop("flash"))
 
-c1, c2 = st.columns(2)
-part = c1.radio("부", PARTS, horizontal=True, key="rg_part")
-upcoming = date.today() + timedelta(days=(6 - date.today().weekday()) % 7)
-sunday = c2.date_input("주일 날짜", value=upcoming, key="rg_date")
+with st.container(key="ctl"):
+    c1, c2 = st.columns(2)
+    part = c1.radio("부", PARTS, horizontal=True, key="rg_part")
+    upcoming = date.today() + timedelta(days=(6 - date.today().weekday()) % 7)
+    sunday = c2.date_input("주일 날짜", value=upcoming, key="rg_date")
 
 mem = fetch("roster_members", "sort_no")
 cls = fetch("roster_classes")
@@ -193,7 +216,7 @@ def count_pr(df):
 
 def make_row(**kw):
     row = {"age": "", "no": "", "en": "", "pr": "", "lab": "", "cnt": "",
-           "bg": "#ffffff", "lbg": "#ffffff", "nbg": "", "tb": "", "pick": ""}
+           "bg": "#ffffff", "lbg": "#ffffff", "nbg": "", "tb": "", "bar": "", "pick": ""}
     for n in range(1, NC + 1):
         row[f"c{n}"] = ""
         row[f"i{n}"] = ""
@@ -204,6 +227,8 @@ def make_row(**kw):
             row[f"ti{n}"] = ""
             row[f"ts{n}"] = ""
     row.update(kw)
+    key = row["lbg"] if row["lbg"] != "#ffffff" else row["bg"]
+    row["bar"] = BARMAP.get(key, "")
     return row
 
 
@@ -254,7 +279,7 @@ if not mobile:
                 r2 = make_row(bg=color)
                 fill_names(r2, kids, extra)
                 rows.append(r2)
-        rows.append(make_row(no="소계", en=g_en, pr=g_pr, bg="#eef1f5", nbg="#eef1f5"))
+        rows.append(make_row(no="소계", en=g_en, pr=g_pr, bg=SUB, nbg=SUB))
         stu_en += g_en
         stu_pr += g_pr
 
@@ -269,7 +294,7 @@ if not mobile:
         rows.append(r)
     stu_en += len(sp)
     stu_pr += sp_pr
-    rows.append(make_row(age="학생합계", en=stu_en, pr=stu_pr, bg="#e9ecef", nbg="#e9ecef"))
+    rows.append(make_row(age="학생합계", en=stu_en, pr=stu_pr, bg=TOT, nbg=TOT))
 
     stf = members_of("스탭", NONE_CLASS)
     stf_pr = count_pr(stf)
@@ -282,8 +307,8 @@ if not mobile:
     tch_all = mem[mem["grade"].str.startswith("담임")]
     tch_en = len(tch_all) + len(stf)
     tch_pr = count_pr(tch_all) + stf_pr
-    rows.append(make_row(age="교사합계", en=tch_en, pr=tch_pr, bg="#e9ecef", nbg="#e9ecef"))
-    rows.append(make_row(age="전체합계", pr=stu_pr + tch_pr, bg="#e9ecef", nbg="#e9ecef"))
+    rows.append(make_row(age="교사합계", en=tch_en, pr=tch_pr, bg=TOT, nbg=TOT))
+    rows.append(make_row(age="전체합계", pr=stu_pr + tch_pr, bg=TOT, nbg=TOT))
 
 else:
     # ---------------------------------------------------------------- 모바일 표 (5칸)
@@ -308,8 +333,7 @@ else:
                 r = make_row(lab="", lbg=color, cnt=f"{pr}/{en}" if k == 0 else "")
                 fill_names(r, kids, off)
                 rows.append(r)
-        rows.append(make_row(lab="소계", lbg="#eef1f5", bg="#eef1f5", nbg="#eef1f5",
-                             cnt=f"{g_pr}/{g_en}"))
+        rows.append(make_row(lab="소계", lbg=SUB, bg=SUB, nbg=SUB, cnt=f"{g_pr}/{g_en}"))
         stu_en += g_en
         stu_pr += g_pr
 
@@ -322,8 +346,7 @@ else:
         rows.append(r)
     stu_en += len(sp)
     stu_pr += sp_pr
-    rows.append(make_row(lab="학생합계", lbg="#e9ecef", bg="#e9ecef", nbg="#e9ecef",
-                         cnt=f"{stu_pr}/{stu_en}"))
+    rows.append(make_row(lab="학생합계", lbg=TOT, bg=TOT, nbg=TOT, cnt=f"{stu_pr}/{stu_en}"))
 
     stf = members_of("스탭", NONE_CLASS)
     stf_pr = count_pr(stf)
@@ -336,75 +359,101 @@ else:
     tch_all = mem[mem["grade"].str.startswith("담임")]
     tch_en = len(tch_all) + len(stf)
     tch_pr = count_pr(tch_all) + stf_pr
-    rows.append(make_row(lab="교사합계", lbg="#e9ecef", bg="#e9ecef", nbg="#e9ecef",
-                         cnt=f"{tch_pr}/{tch_en}"))
-    rows.append(make_row(lab="전체합계", lbg="#e9ecef", bg="#e9ecef", nbg="#e9ecef",
-                         cnt=str(stu_pr + tch_pr)))
+    rows.append(make_row(lab="교사합계", lbg=TOT, bg=TOT, nbg=TOT, cnt=f"{tch_pr}/{tch_en}"))
+    rows.append(make_row(lab="전체합계", lbg=TOT, bg=TOT, nbg=TOT, cnt=str(stu_pr + tch_pr)))
 
 df = pd.DataFrame(rows)
 df["pick"] = ""
 
-FS = "12px" if mobile else "11px"
-base_style = JsCode("function(p){return {backgroundColor: p.data.bg || '#fff', fontWeight: '700', "
-                    "textAlign: 'center', fontSize: '%s', padding: '0 1px'};}" % FS)
-lab_style = JsCode("function(p){return {backgroundColor: p.data.lbg || '#fff', fontWeight: '700', "
-                   "textAlign: 'center', fontSize: '%s', padding: '0 1px', lineHeight: '14px', "
-                   "whiteSpace: 'normal'};}" % FS)
+# ---------------------------------------------------------------- 요약 카드
+rate = round(stu_pr * 100 / stu_en) if stu_en else 0
+st.markdown(
+    "<div class='sumcards'>"
+    f"<div class='sumcard hi'><div class='t'>학생 출석</div><div class='v'>{stu_pr}<small> / {stu_en}</small></div></div>"
+    f"<div class='sumcard'><div class='t'>출석률</div><div class='v'>{rate}<small>%</small></div></div>"
+    f"<div class='sumcard'><div class='t'>교사 출석</div><div class='v'>{tch_pr}<small> / {tch_en}</small></div></div>"
+    f"<div class='sumcard'><div class='t'>전체 출석</div><div class='v'>{stu_pr + tch_pr}</div></div>"
+    "</div>", unsafe_allow_html=True)
+
+p = part.replace("부", "")
+st.markdown(f"<div class='rg-title'>{sunday.year}년 유치{p}부 · {sunday.month}월 {sunday.day}일 "
+            f"({WD[sunday.weekday()]})</div>", unsafe_allow_html=True)
+
+# ---------------------------------------------------------------- 표 스타일
+FS = "13px" if mobile else "12px"
+base_style = JsCode(
+    "function(p){return {backgroundColor: p.data.bg || '#fff', fontWeight: '700', color: '#1b3a5c', "
+    "textAlign: 'center', fontSize: '%s', padding: '0 1px'};}" % FS)
+lab_style = JsCode(
+    "function(p){return {backgroundColor: p.data.lbg || '#fff', fontWeight: '800', color: '#1b3a5c', "
+    "textAlign: 'center', fontSize: '%s', padding: '0 1px', lineHeight: '15px', whiteSpace: 'normal', "
+    "borderLeft: '5px solid ' + (p.data.bar || 'transparent')};}" % FS)
 
 
 def cell_style(flag_field, bold=False):
     return JsCode(
         "function(p){var s=p.data.%s; var b={textAlign:'center',fontSize:'%s',padding:'0 1px',"
-        "cursor:'pointer',lineHeight:'14px',whiteSpace:'normal',wordBreak:'break-all'%s};"
-        "if(s==='on'){b.backgroundColor='#b2f2bb';b.color='#1b6e2a';b.fontWeight='700';}"
-        "else if(s==='off'){b.backgroundColor='#ffe3e3';b.color='#c92a2a';b.fontWeight='700';}"
+        "cursor:'pointer',lineHeight:'15px',whiteSpace:'normal',wordBreak:'break-all',color:'#1b3a5c'%s};"
+        "if(s==='on'){b.backgroundColor='#b2f2bb';b.color='#14532d';b.fontWeight='700';"
+        "b.boxShadow='inset 0 0 0 2px #fff';}"
+        "else if(s==='off'){b.backgroundColor='#ffd9d9';b.color='#b91c1c';b.fontWeight='700';"
+        "b.boxShadow='inset 0 0 0 2px #fff';}"
         "else if(p.data.nbg){b.backgroundColor=p.data.nbg;}"
         "else if(p.data.tb==='1'||%s){b.backgroundColor=p.data.bg;b.fontWeight='700';}"
         "return b;}" % (flag_field, FS, ",fontWeight:'700'" if bold else "", "true" if bold else "false"))
 
 
+def name_fmt(flag_field):
+    return JsCode(
+        "function(p){var s=p.data.%s; var v=p.value||''; if(!v){return '';}"
+        "return (s==='on'?'✓ ':(s==='off'?'✕ ':''))+v;}" % flag_field)
+
+
 if mobile:
-    col_defs = [{"field": "lab", "headerName": "반", "width": 52, "minWidth": 44,
+    col_defs = [{"field": "lab", "headerName": "반", "width": 56, "minWidth": 46,
                  "cellStyle": lab_style, "sortable": False}]
     for n in range(1, NC + 1):
         col_defs.append({"field": f"c{n}", "headerName": "이름" if n == 1 else "", "width": 62,
-                         "minWidth": 50, "cellStyle": cell_style(f"s{n}"), "sortable": False})
+                         "minWidth": 50, "cellStyle": cell_style(f"s{n}"),
+                         "valueFormatter": name_fmt(f"s{n}"), "sortable": False})
         col_defs.append({"field": f"i{n}", "hide": True})
         col_defs.append({"field": f"s{n}", "hide": True})
-    col_defs.append({"field": "cnt", "headerName": "출/재", "width": 46, "minWidth": 40,
+    col_defs.append({"field": "cnt", "headerName": "출/재", "width": 48, "minWidth": 40,
                      "cellStyle": base_style, "sortable": False})
-    row_h, head_h = 36, 30
+    row_h, head_h = 38, 32
 else:
     col_defs = [
-        {"field": "age", "headerName": "나이", "width": 54, "minWidth": 40,
-         "cellStyle": base_style, "sortable": False},
-        {"field": "no", "headerName": "반", "width": 34, "minWidth": 26,
+        {"field": "age", "headerName": "나이", "width": 62, "minWidth": 46,
+         "cellStyle": lab_style, "sortable": False},
+        {"field": "no", "headerName": "반", "width": 36, "minWidth": 28,
          "cellStyle": base_style, "sortable": False},
     ]
     for n in range(1, TN + 1):
-        col_defs.append({"field": f"t{n}", "headerName": "담임샘" if n == 1 else "", "width": 52,
-                         "minWidth": 40, "cellStyle": cell_style(f"ts{n}", bold=True),
-                         "sortable": False})
+        col_defs.append({"field": f"t{n}", "headerName": "담임샘" if n == 1 else "", "width": 56,
+                         "minWidth": 42, "cellStyle": cell_style(f"ts{n}", bold=True),
+                         "valueFormatter": name_fmt(f"ts{n}"), "sortable": False})
         col_defs.append({"field": f"ti{n}", "hide": True})
         col_defs.append({"field": f"ts{n}", "hide": True})
     for n in range(1, NC + 1):
-        col_defs.append({"field": f"c{n}", "headerName": str(n), "width": 50, "minWidth": 32,
-                         "cellStyle": cell_style(f"s{n}"), "sortable": False})
+        col_defs.append({"field": f"c{n}", "headerName": str(n), "width": 54, "minWidth": 34,
+                         "cellStyle": cell_style(f"s{n}"),
+                         "valueFormatter": name_fmt(f"s{n}"), "sortable": False})
         col_defs.append({"field": f"i{n}", "hide": True})
         col_defs.append({"field": f"s{n}", "hide": True})
     col_defs += [
-        {"field": "en", "headerName": "재적", "width": 40, "minWidth": 30,
+        {"field": "en", "headerName": "재적", "width": 42, "minWidth": 32,
          "cellStyle": base_style, "sortable": False},
-        {"field": "pr", "headerName": "출석", "width": 40, "minWidth": 30,
+        {"field": "pr", "headerName": "출석", "width": 42, "minWidth": 32,
          "cellStyle": base_style, "sortable": False},
     ]
-    row_h, head_h = 28, 28
+    row_h, head_h = 32, 34
 
 col_defs += [
     {"field": "bg", "hide": True},
     {"field": "lbg", "hide": True},
     {"field": "nbg", "hide": True},
     {"field": "tb", "hide": True},
+    {"field": "bar", "hide": True},
     {"field": "pick", "hide": True},
 ]
 
@@ -423,22 +472,38 @@ grid_options = {
         "e.node.setDataValue('pick', id ? (id+'|'+e.value+'|'+Date.now()) : '');}"),
 }
 
-ver = st.session_state.get("rg_ver", 0)
-p = part.replace("부", "")
-st.markdown(f"**{sunday.year}년 유치{p}부 {sunday.month}월 {sunday.day}일 ({WD[sunday.weekday()]})**")
+grid_css = {
+    ".ag-header": {"background-color": "#d6ecff !important", "border-bottom": "2px solid #9ccbf0 !important"},
+    ".ag-header-cell": {"background-color": "#d6ecff !important"},
+    ".ag-header-cell-label": {"justify-content": "center", "font-weight": "800", "color": "#1b3a5c"},
+    ".ag-root-wrapper": {"border-radius": "12px", "border": "1px solid #bcd7ee"},
+    ".ag-cell": {"border-color": "#e3edf6 !important"},
+    ".ag-row": {"border-color": "#e3edf6 !important"},
+}
 
+ver = st.session_state.get("rg_ver", 0)
 resp = AgGrid(
-    df, gridOptions=grid_options, allow_unsafe_jscode=True,
+    df, gridOptions=grid_options, allow_unsafe_jscode=True, custom_css=grid_css,
     update_mode=GridUpdateMode.SELECTION_CHANGED | GridUpdateMode.VALUE_CHANGED,
-    height=head_h + row_h * len(df) + 6, fit_columns_on_grid_load=True,
+    height=head_h + row_h * len(df) + 8, fit_columns_on_grid_load=True,
     key=f"rg_grid_{part}_{sunday}_{ver}_{int(bool(mobile))}")
+
+st.markdown(
+    "<div class='rg-legend'>"
+    "<span style='background:#b2f2bb;color:#14532d'>✓ 출석</span>"
+    "<span style='background:#ffd9d9;color:#b91c1c'>✕ 결석</span>"
+    "<span style='background:#f1f3f5;color:#495057'>미확인</span>"
+    + ("<span style='background:#e7f1fb;color:#1b3a5c'>출/재 = 출석/재적</span>" if mobile else "")
+    + "</div>", unsafe_allow_html=True)
 
 name_of = {r["id"]: str(r["name"]) for _, r in mem.iterrows()}
 absent = [f"{name_of[m]}({s[1] or '사유 없음'})" for m, s in status.items()
           if (not s[0]) and m in name_of]
 if absent:
-    st.caption("❌ 결석: " + ", ".join(absent))
-st.caption("초록 = 출석 · 빨강 = 결석 · 흰색 = 미확인" + (" · 출/재 = 출석/재적" if mobile else ""))
+    st.markdown(
+        "<div style='background:#fff5f5;border:1px solid #ffc9c9;border-radius:12px;"
+        "padding:.5rem .8rem;font-size:.85rem;color:#b91c1c'>❌ <b>결석</b> · "
+        + ", ".join(absent) + "</div>", unsafe_allow_html=True)
 
 
 @st.dialog("출결 처리")
@@ -481,6 +546,7 @@ if is_admin:
         picked = None
     if picked and str(picked).count("|") >= 2:
         mid, label, stamp = str(picked).split("|", 2)
+        label = label.replace("✓ ", "").replace("✕ ", "")
         if stamp != st.session_state.get("rg_last"):
             st.session_state["rg_last"] = stamp
             s = status.get(mid)
