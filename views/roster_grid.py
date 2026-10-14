@@ -1,10 +1,9 @@
-import re
 from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, JsCode, GridUpdateMode
 from utils import db
-from utils.db import fetch, upsert, delete
+from utils.db import fetch, upsert
 
 st.title("🧮 출석부 (표 클릭)")
 
@@ -77,13 +76,6 @@ if not vis.empty:
 
 def members_of(grade, no):
     return mem[(mem["grade"] == grade) & (mem["class_no"] == no)].sort_values("sort_no")
-
-
-def teacher_text(grade, no):
-    m = cls[(cls["grade"] == grade) & (cls["class_no"] == no)]
-    if m.empty or not isinstance(m.iloc[0]["teachers"], str):
-        return ""
-    return m.iloc[0]["teachers"]
 
 
 def class_numbers(grade):
@@ -310,65 +302,3 @@ if is_admin:
             s = status.get(mid)
             attend_dialog(mid, label, sunday.isoformat(),
                           (s[0] if s else None), (s[1] if s else ""))
-
-# ================================================================ 담임 명단 등록 (관리자)
-if is_admin:
-    with st.expander("👩‍🏫 담임 명단 등록 (출결 대상)", expanded=st.session_state.get("tch_open", False)):
-        all_classes = [(g, n) for g, _, _ in GRADES for n in class_numbers(g)] + [("새싹", NONE_CLASS)]
-
-        st.caption("처음 한 번, 지금 입력돼 있는 담임 이름을 출결 대상으로 가져옵니다. "
-                   f"({part} 기준, 이미 등록된 이름은 건너뜁니다.)")
-        if st.button("기존 담임 이름 가져오기", key=f"imp_{part}"):
-            new_rows, added = [], 0
-            for g, n in all_classes:
-                have = set(members_of(tg(g), n)["name"])
-                order = len(have)
-                for nm in re.split(r"[\n/,]", teacher_text(g, n)):
-                    nm = nm.strip()
-                    if nm and nm not in have:
-                        have.add(nm)
-                        new_rows.append({"part": part, "grade": tg(g),
-                                         "class_no": None if n == NONE_CLASS else n,
-                                         "name": nm, "sort_no": order})
-                        order += 1
-                        added += 1
-            if new_rows:
-                db.get_client().table("roster_members").insert(new_rows).execute()
-                db._fetch_cached.clear()
-            st.session_state["tch_open"] = True
-            st.session_state["flash"] = f"담임 {added}명을 출결 대상으로 등록했습니다."
-            st.rerun()
-
-        st.divider()
-        names_of = {a: f"{b} {a}" for a, b, _ in GRADES}
-        sel_t = st.selectbox("반 선택", all_classes, key=f"tsel_{part}",
-                             format_func=lambda o: "🌱 새싹반" if o[0] == "새싹"
-                             else f"{names_of[o[0]]} {o[1]}반")
-        g_, n_ = sel_t
-        cur = members_of(tg(g_), n_)
-        fk = f"{part}_{g_}_{n_}"
-        with st.form(f"tch_form_{fk}"):
-            txt = st.text_area("담임샘 이름 (줄바꿈 또는 쉼표로 구분)",
-                               value="\n".join(cur["name"].tolist()), height=90, key=f"tt_{fk}")
-            saved = st.form_submit_button("저장", type="primary", use_container_width=True)
-        if saved:
-            names = []
-            for nm in re.split(r"[\n,]", txt):
-                nm = nm.strip()
-                if nm and nm not in names:
-                    names.append(nm)
-            old = {r["name"]: r["id"] for _, r in cur.iterrows()}
-            for nm, mid in old.items():
-                if nm not in names:
-                    delete("roster_members", mid)
-            new_rows = [{"part": part, "grade": tg(g_), "class_no": None if n_ == NONE_CLASS else n_,
-                         "name": nm, "sort_no": i} for i, nm in enumerate(names) if nm not in old]
-            if new_rows:
-                db.get_client().table("roster_members").insert(new_rows).execute()
-                db._fetch_cached.clear()
-            upsert("roster_classes", [{"part": part, "grade": g_, "class_no": n_,
-                                       "teachers": "\n".join(names) or None}],
-                   "part,grade,class_no")
-            st.session_state["tch_open"] = True
-            st.session_state["flash"] = f"{part} 담임 명단을 저장했습니다. ({len(names)}명)"
-            st.rerun()
