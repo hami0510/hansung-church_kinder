@@ -18,28 +18,16 @@ except Exception:
 SHOW_HOLIDAYS = True
 RENAME = {"기독탄신일": "성탄절", "신정연휴": "신정"}
 
-# 이 화면 전용 스타일
+# 이 화면 전용 스타일 (공지는 기본 expander를 쓰므로 간격만 조정)
 st.markdown("""
 <style>
 .hero {margin-bottom: 1.2rem !important;}
 .hero-sub {opacity: .75;}
 .hsec {font-size: .85rem; font-weight: 700; color: #6b7c93; margin: 0 0 .4rem .2rem;}
-
-/* 공지 상자: 버튼 줄만 사용 (겹치기 없음) */
-.st-key-nbox {border: 1px solid #d5e6f7 !important; border-radius: 16px !important;
-              background: #f6faff; padding: .3rem .4rem !important; margin-bottom: 1.2rem;}
-.st-key-nbox [data-testid="stVerticalBlock"] {gap: .1rem;}
-.st-key-nbox .stButton > button {
-  width: 100%; min-height: 2.8rem; border: none !important; background: transparent !important;
-  box-shadow: none !important; border-radius: 10px !important;
-  justify-content: flex-start !important; text-align: left !important; padding: .4rem .7rem;
-  font-weight: 400; color: #1b3a5c;}
-.st-key-nbox .stButton > button > div,
-.st-key-nbox .stButton > button p {
-  width: 100%; text-align: left !important; justify-content: flex-start !important;
-  margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
-.st-key-nbox .stButton > button:hover {background: rgba(74,159,224,.12) !important;}
-.st-key-nbox .stButton > button[kind="primary"] {color: #1b3a5c; font-weight: 700;}
+.st-key-nlist [data-testid="stVerticalBlock"] {gap: .4rem;}
+.st-key-nlist [data-testid="stExpander"] {border-radius: 12px; background: #f6faff;
+  border: 1px solid #d5e6f7;}
+.st-key-nlist {margin-bottom: 1.2rem;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -71,16 +59,7 @@ if SHOW_HOLIDAYS and _holidays is not None:
     except Exception:
         holiday_map = {}
 
-
-# ---------- 공지: 상단 고정 1건 + 최신 2건 (최대 3건) ----------
-@st.dialog("📢 공지")
-def show_notice(title: str, when: str, content: str):
-    st.markdown(f"### {title}")
-    if when:
-        st.caption(when)
-    st.markdown(html.escape(content).replace("\n", "  \n") if content else "내용이 없습니다.")
-
-
+# ---------- 공지: 상단 고정 1건 + 최신 2건 (최대 3건), 누르면 그 자리에서 펼침 ----------
 try:
     nt = fetch("notices", "created_at", desc=True)
 except Exception:
@@ -94,7 +73,7 @@ if not nt.empty:
     show = pd.concat([pinned, rest])
 
     st.markdown("<div class='hsec'>📢 공지</div>", unsafe_allow_html=True)
-    with st.container(border=True, key="nbox"):
+    with st.container(key="nlist"):
         for _, r in show.iterrows():
             try:
                 when = pd.to_datetime(r["created_at"], utc=True).tz_convert("Asia/Seoul")
@@ -102,11 +81,13 @@ if not nt.empty:
             except Exception:
                 when_s = ""
             mark = "📌" if r["_pin"] else "📢"
+            title = f"**{r['title']}**" if r["_pin"] else str(r["title"])
             content = r["content"] if isinstance(r.get("content"), str) else ""
-            label = f"{mark}  {r['title']}   ·   {when_s}"
-            if st.button(label, key=f"notice_{r['id']}", use_container_width=True,
-                         type="primary" if r["_pin"] else "secondary"):
-                show_notice(str(r["title"]), when_s, content)
+            with st.expander(f"{mark} {title}  ·  {when_s}"):
+                if content:
+                    st.markdown(html.escape(content).replace("\n", "  \n"))
+                else:
+                    st.caption("내용이 없습니다.")
 
 # ---------- 달력용 데이터 ----------
 cal_events = []
