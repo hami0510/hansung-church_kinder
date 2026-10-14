@@ -171,6 +171,8 @@ else:
         "eventTimeFormat": {"hour": "2-digit", "minute": "2-digit", "hour12": False},
     }
     custom_css = """
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap');
+        .fc, .fc * {font-family: 'Noto Sans KR', sans-serif;}
         .fc {--fc-border-color: #e6edf5;}
         .fc-toolbar {margin-bottom: .9rem !important;}
         .fc-toolbar-title {font-size: 1.2rem !important; font-weight: 700;}
