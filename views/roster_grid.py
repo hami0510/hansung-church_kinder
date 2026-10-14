@@ -22,6 +22,7 @@ DEFAULT_CLASSES = {
     "2부": {"조이": 5, "해피": 3, "홀리": 5},
 }
 STUDENT_GRADES = ["조이", "해피", "홀리", "새싹"]
+MOBILE_COLS = 5
 
 
 def tg(grade):          # 담임 구분 이름 (예: 담임조이)
@@ -40,6 +41,7 @@ c1, c2 = st.columns(2)
 part = c1.radio("부", PARTS, horizontal=True, key="rg_part")
 upcoming = date.today() + timedelta(days=(6 - date.today().weekday()) % 7)
 sunday = c2.date_input("주일 날짜", value=upcoming, key="rg_date")
+mobile = st.toggle("📱 모바일 보기 (휴대폰에서는 켜 주세요)", key="rg_mobile")
 
 mem = fetch("roster_members", "sort_no")
 cls = fetch("roster_classes")
@@ -87,7 +89,7 @@ def class_numbers(grade):
 
 stu = mem[mem["grade"].isin(STUDENT_GRADES)]
 counts = stu.groupby(["grade", "class_no"]).size() if not stu.empty else pd.Series(dtype=int)
-NC = max(10, int(counts.max()) if len(counts) else 10)
+NC = MOBILE_COLS if mobile else max(10, int(counts.max()) if len(counts) else 10)
 tm = mem[mem["grade"].str.startswith("담임")]
 tcounts = tm.groupby(["grade", "class_no"]).size() if not tm.empty else pd.Series(dtype=int)
 TN = max(2, int(tcounts.max()) if len(tcounts) else 2)
@@ -98,15 +100,17 @@ def count_pr(df):
 
 
 def make_row(**kw):
-    row = {"age": "", "no": "", "en": "", "pr": "", "bg": "#ffffff", "nbg": "", "pick": ""}
+    row = {"age": "", "no": "", "en": "", "pr": "", "lab": "", "cnt": "",
+           "bg": "#ffffff", "lbg": "#ffffff", "nbg": "", "tb": "", "pick": ""}
     for n in range(1, NC + 1):
         row[f"c{n}"] = ""
         row[f"i{n}"] = ""
         row[f"s{n}"] = ""
-    for n in range(1, TN + 1):
-        row[f"t{n}"] = ""
-        row[f"ti{n}"] = ""
-        row[f"ts{n}"] = ""
+    if not mobile:
+        for n in range(1, TN + 1):
+            row[f"t{n}"] = ""
+            row[f"ti{n}"] = ""
+            row[f"ts{n}"] = ""
     row.update(kw)
     return row
 
@@ -130,103 +134,188 @@ def fill_teachers(row, grade, no):
         row[f"t{n}"], row[f"ti{n}"], row[f"ts{n}"] = str(k["name"]), str(k["id"]), flag_of(k["id"])
 
 
+def chunks(df):
+    """학생 목록을 줄 단위(NC명)로 나눔 (최소 1줄)"""
+    total = max(len(df), 1)
+    return list(range(0, total, NC))
+
+
 rows = []
 stu_en = stu_pr = 0
-for grade, age, color in GRADES:
-    nos = class_numbers(grade)
-    if not nos:
-        continue
-    g_en = g_pr = 0
-    for idx, no in enumerate(nos):
-        kids = members_of(grade, no)
-        en, pr = len(kids), count_pr(kids)
-        g_en += en
-        g_pr += pr
-        r = make_row(age=f"{age} {grade}" if idx == 0 else "", no=str(no), en=en, pr=pr, bg=color)
-        fill_names(r, kids)
-        fill_teachers(r, grade, no)
-        rows.append(r)
-        for extra in range(NC, len(kids), NC):
-            r2 = make_row(bg=color)
-            fill_names(r2, kids, extra)
-            rows.append(r2)
-    rows.append(make_row(no="소계", en=g_en, pr=g_pr, bg="#eef1f5", nbg="#eef1f5"))
-    stu_en += g_en
-    stu_pr += g_pr
 
-sp = members_of("새싹", NONE_CLASS)
-sp_pr = count_pr(sp)
-r = make_row(age="🌱새싹", en=len(sp), pr=sp_pr, bg="#e9f7ec")
-fill_names(r, sp)
-fill_teachers(r, "새싹", NONE_CLASS)
-rows.append(r)
-stu_en += len(sp)
-stu_pr += sp_pr
-rows.append(make_row(age="학생합계", en=stu_en, pr=stu_pr, bg="#e9ecef", nbg="#e9ecef"))
-rows.append(make_row(age="방문자", pr=visitors, bg="#ffffff"))
+if not mobile:
+    # ---------------------------------------------------------------- PC 표 (10칸)
+    for grade, age, color in GRADES:
+        nos = class_numbers(grade)
+        if not nos:
+            continue
+        g_en = g_pr = 0
+        for idx, no in enumerate(nos):
+            kids = members_of(grade, no)
+            en, pr = len(kids), count_pr(kids)
+            g_en += en
+            g_pr += pr
+            r = make_row(age=f"{age} {grade}" if idx == 0 else "", no=str(no), en=en, pr=pr, bg=color)
+            fill_names(r, kids)
+            fill_teachers(r, grade, no)
+            rows.append(r)
+            for extra in range(NC, len(kids), NC):
+                r2 = make_row(bg=color)
+                fill_names(r2, kids, extra)
+                rows.append(r2)
+        rows.append(make_row(no="소계", en=g_en, pr=g_pr, bg="#eef1f5", nbg="#eef1f5"))
+        stu_en += g_en
+        stu_pr += g_pr
 
-stf = members_of("스탭", NONE_CLASS)
-stf_pr = count_pr(stf)
-for off in range(0, max(len(stf), 1), NC):
-    r = make_row(age="스탭" if off == 0 else "", en=len(stf) if off == 0 else "",
-                 pr=stf_pr if off == 0 else "", bg="#fafbfc")
-    fill_names(r, stf, off)
+    sp = members_of("새싹", NONE_CLASS)
+    sp_pr = count_pr(sp)
+    r = make_row(age="🌱새싹", en=len(sp), pr=sp_pr, bg="#e9f7ec")
+    fill_names(r, sp)
+    fill_teachers(r, "새싹", NONE_CLASS)
     rows.append(r)
+    stu_en += len(sp)
+    stu_pr += sp_pr
+    rows.append(make_row(age="학생합계", en=stu_en, pr=stu_pr, bg="#e9ecef", nbg="#e9ecef"))
+    rows.append(make_row(age="방문자", pr=visitors, bg="#ffffff"))
 
-tch_all = mem[mem["grade"].str.startswith("담임")]
-tch_en = len(tch_all) + len(stf)
-tch_pr = count_pr(tch_all) + stf_pr
-rows.append(make_row(age="교사합계", en=tch_en, pr=tch_pr, bg="#e9ecef", nbg="#e9ecef"))
-rows.append(make_row(age="전체합계", pr=stu_pr + tch_pr + visitors, bg="#e9ecef", nbg="#e9ecef"))
+    stf = members_of("스탭", NONE_CLASS)
+    stf_pr = count_pr(stf)
+    for off in range(0, max(len(stf), 1), NC):
+        r = make_row(age="스탭" if off == 0 else "", en=len(stf) if off == 0 else "",
+                     pr=stf_pr if off == 0 else "", bg="#fafbfc")
+        fill_names(r, stf, off)
+        rows.append(r)
+
+    tch_all = mem[mem["grade"].str.startswith("담임")]
+    tch_en = len(tch_all) + len(stf)
+    tch_pr = count_pr(tch_all) + stf_pr
+    rows.append(make_row(age="교사합계", en=tch_en, pr=tch_pr, bg="#e9ecef", nbg="#e9ecef"))
+    rows.append(make_row(age="전체합계", pr=stu_pr + tch_pr + visitors, bg="#e9ecef", nbg="#e9ecef"))
+
+else:
+    # ---------------------------------------------------------------- 모바일 표 (5칸)
+    def teacher_row(label, grade, no, color):
+        kids = members_of(tg(grade), no)
+        r = make_row(lab=label, lbg=color, bg=color, tb="1")
+        fill_names(r, kids.head(NC))
+        rows.append(r)
+
+    for grade, age, color in GRADES:
+        nos = class_numbers(grade)
+        if not nos:
+            continue
+        g_en = g_pr = 0
+        for no in nos:
+            kids = members_of(grade, no)
+            en, pr = len(kids), count_pr(kids)
+            g_en += en
+            g_pr += pr
+            teacher_row(f"{grade}{no}", grade, no, color)
+            for k, off in enumerate(chunks(kids)):
+                r = make_row(lab="", lbg=color, cnt=f"{pr}/{en}" if k == 0 else "")
+                fill_names(r, kids, off)
+                rows.append(r)
+        rows.append(make_row(lab="소계", lbg="#eef1f5", bg="#eef1f5", nbg="#eef1f5", cnt=f"{g_pr}/{g_en}"))
+        stu_en += g_en
+        stu_pr += g_pr
+
+    sp = members_of("새싹", NONE_CLASS)
+    sp_pr = count_pr(sp)
+    teacher_row("🌱새싹", "새싹", NONE_CLASS, "#e9f7ec")
+    for k, off in enumerate(chunks(sp)):
+        r = make_row(lab="", lbg="#e9f7ec", cnt=f"{sp_pr}/{len(sp)}" if k == 0 else "")
+        fill_names(r, sp, off)
+        rows.append(r)
+    stu_en += len(sp)
+    stu_pr += sp_pr
+    rows.append(make_row(lab="학생합계", lbg="#e9ecef", bg="#e9ecef", nbg="#e9ecef", cnt=f"{stu_pr}/{stu_en}"))
+    rows.append(make_row(lab="방문자", lbg="#ffffff", cnt=str(visitors)))
+
+    stf = members_of("스탭", NONE_CLASS)
+    stf_pr = count_pr(stf)
+    for k, off in enumerate(chunks(stf)):
+        r = make_row(lab="스탭" if k == 0 else "", lbg="#fafbfc",
+                     cnt=f"{stf_pr}/{len(stf)}" if k == 0 else "")
+        fill_names(r, stf, off)
+        rows.append(r)
+
+    tch_all = mem[mem["grade"].str.startswith("담임")]
+    tch_en = len(tch_all) + len(stf)
+    tch_pr = count_pr(tch_all) + stf_pr
+    rows.append(make_row(lab="교사합계", lbg="#e9ecef", bg="#e9ecef", nbg="#e9ecef", cnt=f"{tch_pr}/{tch_en}"))
+    rows.append(make_row(lab="전체합계", lbg="#e9ecef", bg="#e9ecef", nbg="#e9ecef",
+                         cnt=str(stu_pr + tch_pr + visitors)))
 
 df = pd.DataFrame(rows)
 df["pick"] = ""
 
+FS = "12px" if mobile else "11px"
 base_style = JsCode("function(p){return {backgroundColor: p.data.bg || '#fff', fontWeight: '700', "
-                    "textAlign: 'center', fontSize: '11px', padding: '0 1px'};}")
+                    "textAlign: 'center', fontSize: '%s', padding: '0 1px'};}" % FS)
+lab_style = JsCode("function(p){return {backgroundColor: p.data.lbg || '#fff', fontWeight: '700', "
+                   "textAlign: 'center', fontSize: '%s', padding: '0 1px', lineHeight: '14px', "
+                   "whiteSpace: 'normal'};}" % FS)
 
 
 def cell_style(flag_field, bold=False):
     return JsCode(
-        "function(p){var s=p.data.%s; var b={textAlign:'center',fontSize:'11px',padding:'0 1px',"
-        "cursor:'pointer'%s};"
+        "function(p){var s=p.data.%s; var b={textAlign:'center',fontSize:'%s',padding:'0 1px',"
+        "cursor:'pointer',lineHeight:'14px',whiteSpace:'normal',wordBreak:'break-all'%s};"
         "if(s==='on'){b.backgroundColor='#b2f2bb';b.color='#1b6e2a';b.fontWeight='700';}"
         "else if(s==='off'){b.backgroundColor='#ffe3e3';b.color='#c92a2a';b.fontWeight='700';}"
         "else if(p.data.nbg){b.backgroundColor=p.data.nbg;}"
-        "else if(%s){b.backgroundColor=p.data.bg;}"
-        "return b;}" % (flag_field, ",fontWeight:'700'" if bold else "", "true" if bold else "false"))
+        "else if(p.data.tb==='1'||%s){b.backgroundColor=p.data.bg;b.fontWeight='700';}"
+        "return b;}" % (flag_field, FS, ",fontWeight:'700'" if bold else "", "true" if bold else "false"))
 
 
-col_defs = [
-    {"field": "age", "headerName": "나이", "width": 54, "minWidth": 40,
-     "cellStyle": base_style, "sortable": False},
-    {"field": "no", "headerName": "반", "width": 34, "minWidth": 26,
-     "cellStyle": base_style, "sortable": False},
-]
-for n in range(1, TN + 1):
-    col_defs.append({"field": f"t{n}", "headerName": "담임샘" if n == 1 else "", "width": 52,
-                     "minWidth": 40, "cellStyle": cell_style(f"ts{n}", bold=True), "sortable": False})
-    col_defs.append({"field": f"ti{n}", "hide": True})
-    col_defs.append({"field": f"ts{n}", "hide": True})
-for n in range(1, NC + 1):
-    col_defs.append({"field": f"c{n}", "headerName": str(n), "width": 50, "minWidth": 32,
-                     "cellStyle": cell_style(f"s{n}"), "sortable": False})
-    col_defs.append({"field": f"i{n}", "hide": True})
-    col_defs.append({"field": f"s{n}", "hide": True})
+if mobile:
+    col_defs = [{"field": "lab", "headerName": "반", "width": 52, "minWidth": 44,
+                 "cellStyle": lab_style, "sortable": False}]
+    for n in range(1, NC + 1):
+        col_defs.append({"field": f"c{n}", "headerName": "이름" if n == 1 else "", "width": 62,
+                         "minWidth": 50, "cellStyle": cell_style(f"s{n}"), "sortable": False})
+        col_defs.append({"field": f"i{n}", "hide": True})
+        col_defs.append({"field": f"s{n}", "hide": True})
+    col_defs.append({"field": "cnt", "headerName": "출/재", "width": 46, "minWidth": 40,
+                     "cellStyle": base_style, "sortable": False})
+    row_h, head_h = 36, 30
+else:
+    col_defs = [
+        {"field": "age", "headerName": "나이", "width": 54, "minWidth": 40,
+         "cellStyle": base_style, "sortable": False},
+        {"field": "no", "headerName": "반", "width": 34, "minWidth": 26,
+         "cellStyle": base_style, "sortable": False},
+    ]
+    for n in range(1, TN + 1):
+        col_defs.append({"field": f"t{n}", "headerName": "담임샘" if n == 1 else "", "width": 52,
+                         "minWidth": 40, "cellStyle": cell_style(f"ts{n}", bold=True), "sortable": False})
+        col_defs.append({"field": f"ti{n}", "hide": True})
+        col_defs.append({"field": f"ts{n}", "hide": True})
+    for n in range(1, NC + 1):
+        col_defs.append({"field": f"c{n}", "headerName": str(n), "width": 50, "minWidth": 32,
+                         "cellStyle": cell_style(f"s{n}"), "sortable": False})
+        col_defs.append({"field": f"i{n}", "hide": True})
+        col_defs.append({"field": f"s{n}", "hide": True})
+    col_defs += [
+        {"field": "en", "headerName": "재적", "width": 40, "minWidth": 30,
+         "cellStyle": base_style, "sortable": False},
+        {"field": "pr", "headerName": "출석", "width": 40, "minWidth": 30,
+         "cellStyle": base_style, "sortable": False},
+    ]
+    row_h, head_h = 28, 28
+
 col_defs += [
-    {"field": "en", "headerName": "재적", "width": 40, "minWidth": 30,
-     "cellStyle": base_style, "sortable": False},
-    {"field": "pr", "headerName": "출석", "width": 40, "minWidth": 30,
-     "cellStyle": base_style, "sortable": False},
     {"field": "bg", "hide": True},
+    {"field": "lbg", "hide": True},
     {"field": "nbg", "hide": True},
+    {"field": "tb", "hide": True},
     {"field": "pick", "hide": True},
 ]
 
 grid_options = {
     "columnDefs": col_defs,
-    "rowHeight": 28,
-    "headerHeight": 28,
+    "rowHeight": row_h,
+    "headerHeight": head_h,
     "suppressMovableColumns": True,
     "suppressCellFocus": True,
     "defaultColDef": {"resizable": False},
@@ -245,8 +334,8 @@ st.markdown(f"**{sunday.year}년 유치{p}부 {sunday.month}월 {sunday.day}일 
 resp = AgGrid(
     df, gridOptions=grid_options, allow_unsafe_jscode=True,
     update_mode=GridUpdateMode.SELECTION_CHANGED | GridUpdateMode.VALUE_CHANGED,
-    height=28 + 28 * len(df) + 6, fit_columns_on_grid_load=True,
-    key=f"rg_grid_{part}_{sunday}_{ver}")
+    height=head_h + row_h * len(df) + 6, fit_columns_on_grid_load=True,
+    key=f"rg_grid_{part}_{sunday}_{ver}_{int(bool(mobile))}")
 
 # 결석 사유 요약 (표 칸이 좁아 사유는 여기에 모아서 표시)
 name_of = {r["id"]: str(r["name"]) for _, r in mem.iterrows()}
@@ -254,7 +343,7 @@ absent = [f"{name_of[m]}({s[1] or '사유 없음'})" for m, s in status.items()
           if (not s[0]) and m in name_of]
 if absent:
     st.caption("❌ 결석: " + ", ".join(absent))
-st.caption("초록 = 출석 · 빨강 = 결석 · 흰색 = 미확인")
+st.caption("초록 = 출석 · 빨강 = 결석 · 흰색 = 미확인" + (" · 출/재 = 출석/재적" if mobile else ""))
 
 
 @st.dialog("출결 처리")
