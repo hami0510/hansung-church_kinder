@@ -223,8 +223,3 @@ else:
     if clicked_iso and click_id != st.session_state.get("last_click_id"):
         st.session_state["last_click_id"] = click_id
         show_day(clicked_iso)
-
-    with st.expander("📆 날짜를 골라서 보기"):
-        pick = st.date_input("날짜", value=today, key="pick_day")
-        if st.button("이 날짜 열기", key="open_pick", use_container_width=True):
-            show_day(pick.isoformat())
