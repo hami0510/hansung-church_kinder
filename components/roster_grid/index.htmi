@@ -1,0 +1,177 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body {margin: 0; font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; color: #1b3a5c;}
+  .wrap {overflow-x: auto; padding: 2px;}
+  table {border-collapse: collapse; width: 100%; min-width: 720px; table-layout: fixed; font-size: 13px;}
+  th, td {border: 1px solid #6b7c93; padding: 3px 2px; text-align: center; overflow: hidden;
+          text-overflow: ellipsis; white-space: nowrap; height: 26px;}
+  th {background: #f1f7fd; font-weight: 700;}
+  th.ttl {font-size: 17px; background: #fff; padding: 8px;}
+  td.g {font-weight: 700; line-height: 1.3; white-space: normal;}
+  td.no {font-weight: 700;}
+  td.tch {font-weight: 700; white-space: normal; line-height: 1.25;}
+  td.num {font-weight: 700;}
+  td.sub {background: #eef1f5; font-weight: 700;}
+  td.big {background: #e9ecef; font-weight: 700; font-size: 14px;}
+  td.lab {font-weight: 700; background: #fafbfc;}
+  td.nm {height: 28px;}
+  td.nm.click {cursor: pointer;}
+  td.nm.click:hover {background: #eef6ff;}
+  td.nm.on {color: #1b8a2f; font-weight: 700; background: #e6f9e9;}
+  td.nm.off {color: #c92a2a; font-weight: 700; background: #fff0f0;}
+  td.rs {height: 22px; padding: 0;}
+  td.rs select {width: 100%; height: 22px; font-size: 11px; border: none; background: transparent;
+                color: #868e96; font-family: inherit; text-overflow: ellipsis;}
+  td.rs select.has {color: #c92a2a; font-weight: 700;}
+  td.rs span {font-size: 11px; color: #c92a2a;}
+  input.v {width: 90%; text-align: center; font-size: 13px; font-weight: 700; border: 1px solid #adb5bd;
+           border-radius: 4px; font-family: inherit;}
+</style>
+</head>
+<body>
+<div class="wrap" id="root"></div>
+<script>
+function send(type, data) {
+  window.parent.postMessage(Object.assign({isStreamlitMessage: true, type: type}, data || {}), "*");
+}
+send("streamlit:componentReady", {apiVersion: 1});
+
+var A = null, S = {}, dirty = {}, token = null, visitors = 0;
+
+window.addEventListener("message", function (e) {
+  if (e.data && e.data.type === "streamlit:render") onRender(e.data.args);
+});
+
+function onRender(args) {
+  A = args;
+  if (token !== args.token) {              // 새 부/날짜/명단일 때만 서버 값으로 초기화
+    token = args.token; S = {}; dirty = {};
+    Object.keys(args.status).forEach(function (id) {
+      var v = args.status[id];
+      S[id] = {p: v[0] ? 1 : 0, r: v[1] || ""};
+    });
+    visitors = args.visitors || 0;
+  }
+  draw();
+}
+
+function emit() {
+  var state = {};
+  Object.keys(dirty).forEach(function (id) {
+    var v = S[id];
+    state[id] = v ? [v.p, v.r] : [null, ""];
+  });
+  send("streamlit:setComponentValue", {value: {t: Date.now(), state: state, visitors: visitors}, dataType: "json"});
+}
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function isOn(id) { return S[id] && S[id].p === 1; }
+function cnt(list) { var n = 0; list.forEach(function (m) { if (isOn(m.id)) n++; }); return n; }
+
+function nameRow(members, ncols) {
+  var h = "";
+  for (var i = 0; i < ncols; i++) {
+    var m = members[i];
+    if (!m) { h += "<td class='nm'></td>"; continue; }
+    var v = S[m.id], cl = "";
+    if (v && v.p === 1) cl = " on"; else if (v && v.p === 0) cl = " off";
+    h += "<td class='nm" + (A.admin ? " click" : "") + cl + "' data-id='" + m.id + "' title='" + esc(m.name) + "'>" + esc(m.name) + "</td>";
+  }
+  return h;
+}
+function reasonRow(members, ncols) {
+  var h = "";
+  for (var i = 0; i < ncols; i++) {
+    var m = members[i];
+    if (!m) { h += "<td class='rs'></td>"; continue; }
+    var v = S[m.id], cur = (v && v.p === 0) ? v.r : "";
+    if (A.admin) {
+      var o = "<option value=''>사유</option>";
+      A.reasons.forEach(function (r) { o += "<option value='" + esc(r) + "'" + (r === cur ? " selected" : "") + ">" + esc(r) + "</option>"; });
+      h += "<td class='rs'><select data-id='" + m.id + "' class='" + (cur ? "has" : "") + "'>" + o + "</select></td>";
+    } else {
+      h += "<td class='rs'><span>" + esc(cur) + "</span></td>";
+    }
+  }
+  return h;
+}
+
+function draw() {
+  var ncols = A.ncols, H = [];
+  H.push("<table>");
+  H.push("<tr><th class='ttl' colspan='" + (ncols + 5) + "'>" + esc(A.title) + "</th></tr>");
+  var head = "<tr><th style='width:48px'>나이</th><th style='width:30px'>반</th><th style='width:72px'>담임샘</th>";
+  for (var i = 1; i <= ncols; i++) head += "<th>" + i + "</th>";
+  head += "<th style='width:42px'>재적</th><th style='width:42px'>출석</th></tr>";
+  H.push(head);
+
+  var stuEn = 0, stuPr = 0;
+  A.grades.forEach(function (g) {
+    if (!g.classes.length) return;
+    var gEn = 0, gPr = 0;
+    g.classes.forEach(function (c, idx) {
+      var en = c.members.length, pr = cnt(c.members);
+      gEn += en; gPr += pr;
+      var r1 = "<tr>";
+      if (idx === 0) r1 += "<td class='g' rowspan='" + (g.classes.length * 2 + 1) + "' style='background:" + g.color + "'>" + esc(g.age) + "<br>" + esc(g.grade) + "</td>";
+      r1 += "<td class='no' rowspan='2' style='background:" + g.color + "'>" + c.no + "</td>";
+      r1 += "<td class='tch' rowspan='2' style='background:" + g.color + "'>" + esc(c.teachers).replace(/\n/g, "<br>") + "</td>";
+      r1 += nameRow(c.members, ncols);
+      r1 += "<td class='num' rowspan='2'>" + en + "</td><td class='num' rowspan='2'>" + pr + "</td></tr>";
+      H.push(r1);
+      H.push("<tr>" + reasonRow(c.members, ncols) + "</tr>");
+    });
+    H.push("<tr><td class='sub' colspan='" + (ncols + 2) + "'>소계</td><td class='sub'>" + gEn + "</td><td class='sub'>" + gPr + "</td></tr>");
+    stuEn += gEn; stuPr += gPr;
+  });
+
+  var sp = A.sprout, spPr = cnt(sp.members);
+  H.push("<tr><td class='lab' colspan='2' rowspan='2'>🌱 새싹반</td><td class='tch' rowspan='2'>" + esc(sp.teachers).replace(/\n/g, "<br>") + "</td>" +
+         nameRow(sp.members, ncols) + "<td class='num' rowspan='2'>" + sp.members.length + "</td><td class='num' rowspan='2'>" + spPr + "</td></tr>");
+  H.push("<tr>" + reasonRow(sp.members, ncols) + "</tr>");
+  stuEn += sp.members.length; stuPr += spPr;
+
+  H.push("<tr><td class='big' colspan='3'>학생 합계</td><td class='big' colspan='" + ncols + "'></td><td class='big'>" + stuEn + "</td><td class='big'>" + stuPr + "</td></tr>");
+
+  var vcell = A.admin ? "<input class='v' type='number' min='0' id='vis' value='" + visitors + "'>" : String(visitors);
+  H.push("<tr><td class='lab' colspan='3'>방문자</td><td colspan='" + ncols + "'></td><td></td><td class='num'>" + vcell + "</td></tr>");
+
+  var sf = A.staff, sfPr = cnt(sf.members);
+  H.push("<tr><td class='lab' colspan='3' rowspan='2'>스탭(교사)</td>" + nameRow(sf.members, ncols) +
+         "<td class='num' rowspan='2'>" + sf.members.length + "</td><td class='num' rowspan='2'>" + sfPr + "</td></tr>");
+  H.push("<tr>" + reasonRow(sf.members, ncols) + "</tr>");
+
+  H.push("<tr><td class='big' colspan='" + (ncols + 4) + "' style='text-align:right;padding-right:8px'>전체(학생+교사+방문자) 출석 합계</td><td class='big'>" + (stuPr + sfPr + (parseInt(visitors) || 0)) + "</td></tr>");
+  H.push("</table>");
+  document.getElementById("root").innerHTML = H.join("");
+  setTimeout(function () { send("streamlit:setFrameHeight", {height: document.documentElement.scrollHeight + 8}); }, 30);
+}
+
+document.getElementById("root").addEventListener("click", function (e) {
+  if (!A || !A.admin) return;
+  var td = e.target.closest("td.nm[data-id]");
+  if (!td) return;
+  var id = td.getAttribute("data-id"), v = S[id];
+  if (v && v.p === 1) delete S[id]; else S[id] = {p: 1, r: ""};
+  dirty[id] = 1; draw(); emit();
+});
+document.getElementById("root").addEventListener("change", function (e) {
+  if (!A || !A.admin) return;
+  var t = e.target;
+  if (t.tagName === "SELECT" && t.getAttribute("data-id")) {
+    var id = t.getAttribute("data-id");
+    if (t.value) S[id] = {p: 0, r: t.value}; else delete S[id];
+    dirty[id] = 1; draw(); emit();
+  } else if (t.id === "vis") {
+    visitors = Math.max(0, parseInt(t.value) || 0);
+    draw(); emit();
+  }
+});
+</script>
+</body>
+</html>
