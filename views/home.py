@@ -4,7 +4,6 @@ import pandas as pd
 import streamlit as st
 from utils.db import fetch
 from utils.ui import hero, stats_line
-from utils.notice_ui import notice_cards
 
 try:
     from streamlit_calendar import calendar as st_calendar
@@ -18,6 +17,8 @@ except Exception:
 
 SHOW_HOLIDAYS = True
 RENAME = {"기독탄신일": "성탄절", "신정연휴": "신정"}
+# 홈에 보여줄 공지 개수 (나머지는 공지사항 메뉴에서)
+NOTICE_SHOW = 3
 
 hero()
 
@@ -54,16 +55,50 @@ if not ev.empty:
     n_events = int(((ev["event_date"] >= today) & (ev["event_date"] <= week_end)).sum())
 stats_line([("📅", "이번 주 일정", f"{n_events}건")])
 
-# ---------- 공지 ----------
+
+# ---------- 공지 (제목만 → 누르면 팝업) ----------
+@st.dialog("📢 공지")
+def show_notice(title: str, when: str, content: str):
+    st.markdown(f"### {title}")
+    if when:
+        st.caption(when)
+    st.markdown(html.escape(content).replace("\n", "  \n") if content else "내용이 없습니다.")
+
+
 try:
     nt = fetch("notices", "created_at", desc=True)
 except Exception:
     nt = pd.DataFrame()
+
 if not nt.empty:
     nt["_pin"] = nt["pinned"].apply(lambda v: str(v).lower() == "true")
     nt = nt.sort_values(["_pin", "created_at"], ascending=[False, False])
     st.subheader("📢 공지")
-    notice_cards(nt.head(3))
+    st.markdown("""
+    <style>
+    .st-key-nlist .stButton > button {
+      justify-content: flex-start; text-align: left; border: none !important;
+      border-bottom: 1px solid rgba(128,128,128,.2) !important; border-radius: 0 !important;
+      background: transparent !important; padding: .55rem .3rem; font-weight: 400;}
+    .st-key-nlist .stButton > button:hover {background: rgba(74,159,224,.10) !important;}
+    .st-key-nlist .stButton > button p {text-align: left; width: 100%; margin: 0;}
+    .st-key-nlist [data-testid="stVerticalBlock"] {gap: 0;}
+    </style>
+    """, unsafe_allow_html=True)
+    with st.container(key="nlist"):
+        for _, r in nt.head(NOTICE_SHOW).iterrows():
+            try:
+                when = pd.to_datetime(r["created_at"], utc=True).tz_convert("Asia/Seoul")
+                when_s = f"{when:%Y.%m.%d}"
+            except Exception:
+                when_s = ""
+            mark = "📌" if r["_pin"] else "📢"
+            content = r["content"] if isinstance(r.get("content"), str) else ""
+            if st.button(f"{mark}  {r['title']}   ·   {when_s}", key=f"notice_{r['id']}",
+                         use_container_width=True):
+                show_notice(str(r["title"]), when_s, content)
+    if len(nt) > NOTICE_SHOW:
+        st.caption(f"공지 {len(nt)}건 중 {NOTICE_SHOW}건만 표시됩니다. 전체는 왼쪽 '공지사항' 메뉴에서 볼 수 있습니다.")
 
 # ---------- 달력용 데이터 ----------
 cal_events = []
