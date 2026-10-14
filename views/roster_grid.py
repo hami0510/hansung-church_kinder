@@ -3,8 +3,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, JsCode, GridUpdateMode
-from utils import db
-from utils.db import fetch, insert, update, delete, upsert
+from utils.db import fetch, fetch_where, insert, update, delete, delete_where, upsert
 
 st.title("📋 주일 출석부")
 
@@ -89,9 +88,9 @@ with st.container(key="ctl"):
 
 mem = fetch("roster_members", "sort_no")
 cls = fetch("roster_classes")
-att = fetch("roster_attendance")
+att = fetch_where("roster_attendance", sunday_date=sunday.isoformat())
 try:
-    plan = fetch("roster_plan")
+    plan = fetch_where("roster_plan", sunday_date=sunday.isoformat())
     plan_ok_table = True
 except Exception:
     plan = pd.DataFrame()
@@ -574,7 +573,7 @@ grid_options = {
     "suppressCellFocus": True,
     "defaultColDef": {"resizable": False},
     "rowSelection": "single",
-    "suppressRowClickSelection": False,
+    "suppressRowClickSelection": True,
     "onCellClicked": JsCode(
         "function(e){var f=e.colDef.field||'';var m=/^(c|t)([0-9]+)$/.exec(f);if(!m)return;"
         "var id=e.data[(m[1]==='c'?'i':'ti')+m[2]];"
@@ -594,7 +593,7 @@ grid_css = {
 ver = st.session_state.get("rg_ver", 0)
 resp = AgGrid(
     df, gridOptions=grid_options, allow_unsafe_jscode=True, custom_css=grid_css,
-    update_mode=GridUpdateMode.SELECTION_CHANGED | GridUpdateMode.VALUE_CHANGED,
+    update_mode=GridUpdateMode.VALUE_CHANGED,
     height=head_h + row_h * (len(df) + 2) + 30, fit_columns_on_grid_load=True,
     key=f"rg_grid_{part}_{sunday}_{ver}_{int(bool(mobile))}_{int(is_plan)}")
 
@@ -729,9 +728,7 @@ def attend_dialog(member_id: str, name: str, d_iso: str, cur_present, cur_reason
     if b2.button("기록 지우기", use_container_width=True, key=f"rgd_d_{member_id}"):
         if not is_admin:
             st.stop()
-        db.get_client().table("roster_attendance").delete() \
-            .eq("member_id", member_id).eq("sunday_date", d_iso).execute()
-        db._fetch_cached.clear()
+        delete_where("roster_attendance", member_id=member_id, sunday_date=d_iso)
         st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
         st.rerun()
 
@@ -772,9 +769,7 @@ def plan_dialog(member_id: str, name: str, d_iso: str, cur_status, cur_reason: s
         if not plan_open:
             st.error("마감되어 수정할 수 없습니다. 관리자에게 요청해 주세요.")
             st.stop()
-        db.get_client().table("roster_plan").delete() \
-            .eq("member_id", member_id).eq("sunday_date", d_iso).execute()
-        db._fetch_cached.clear()
+        delete_where("roster_plan", member_id=member_id, sunday_date=d_iso)
         st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
         st.rerun()
 
@@ -782,10 +777,11 @@ def plan_dialog(member_id: str, name: str, d_iso: str, cur_status, cur_reason: s
 # 이름 클릭 처리: 예정 단계는 선생님 누구나(마감 전), 실제 단계는 관리자만
 picked = None
 try:
-    sel = resp["selected_rows"]
-    if sel is not None and len(sel) > 0:
-        first = sel.iloc[0] if hasattr(sel, "iloc") else sel[0]
-        picked = first.get("pick") if hasattr(first, "get") else None
+    returned = resp["data"]
+    records = returned.to_dict("records") if hasattr(returned, "to_dict") else returned
+    candidates = [r.get("pick") for r in records if hasattr(r, "get") and r.get("pick")]
+    if candidates:
+        picked = max(candidates, key=lambda v: int(str(v).rsplit("|", 1)[-1]))
 except Exception:
     picked = None
 if picked and str(picked).count("|") >= 2:
@@ -822,10 +818,10 @@ if is_admin and not is_plan:
             st.warning(f"새싹반에 이미 '{nm}'이(가) 있습니다.")
         else:
             order = len(members_of("새싹", NONE_CLASS))
-            res = db.get_client().table("roster_members").insert(
-                {"part": part, "grade": "새싹", "class_no": None,
-                 "name": nm, "sort_no": order}).execute()
-            db._fetch_cached.clear()
+            res = insert("roster_members", {
+                "part": part, "grade": "새싹", "class_no": None,
+                "name": nm, "sort_no": order,
+            })
             try:
                 new_id = res.data[0]["id"]
                 upsert("roster_attendance",
@@ -834,12 +830,18 @@ if is_admin and not is_plan:
             except Exception:
                 pass
             try:
-                allsp = db.get_client().table("roster_members").select("id,name") \
-                    .eq("part", part).eq("grade", "새싹").execute().data or []
-                for i, r in enumerate(sorted(allsp, key=lambda x: x["name"])):
-                    db.get_client().table("roster_members").update({"sort_no": i}) \
-                        .eq("id", r["id"]).execute()
-                db._fetch_cached.clear()
+                allsp = fetch_where("roster_members", part=part, grade="새싹")
+                reordered = [
+                    {
+                        "id": r["id"], "part": r["part"], "grade": r["grade"],
+                        "class_no": None, "name": r["name"], "sort_no": i,
+                    }
+                    for i, r in enumerate(
+                        sorted(allsp.to_dict("records"), key=lambda row: row["name"])
+                    )
+                ]
+                if reordered:
+                    upsert("roster_members", reordered, "id")
             except Exception:
                 pass
             st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1

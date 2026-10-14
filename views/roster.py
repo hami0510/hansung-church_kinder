@@ -2,8 +2,7 @@ import html
 from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
-from utils import db
-from utils.db import fetch, insert, update, delete, upsert
+from utils.db import fetch, insert, update, delete, delete_where, upsert
 
 st.title("📋 주일 출석부")
 
@@ -207,9 +206,7 @@ def build_table():
 
 
 def clear_status(member_id, d):
-    db.get_client().table("roster_attendance").delete() \
-        .eq("member_id", member_id).eq("sunday_date", d.isoformat()).execute()
-    db._fetch_cached.clear()
+    delete_where("roster_attendance", member_id=member_id, sunday_date=d.isoformat())
 
 
 # ---------------------------------------------------------------- 이름 클릭 팝업
