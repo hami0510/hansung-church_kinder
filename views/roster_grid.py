@@ -260,10 +260,13 @@ if not mobile:
 
     sp = members_of("새싹", NONE_CLASS)
     sp_pr = count_pr(sp)
-    r = make_row(age="🌱새싹", en=len(sp), pr=sp_pr, bg="#e9f7ec")
-    fill_names(r, sp)
-    fill_teachers(r, "새싹", NONE_CLASS)
-    rows.append(r)
+    for off in range(0, max(len(sp), 1), NC):
+        r = make_row(age="🌱새싹" if off == 0 else "", en=len(sp) if off == 0 else "",
+                     pr=sp_pr if off == 0 else "", bg="#e9f7ec")
+        fill_names(r, sp, off)
+        if off == 0:
+            fill_teachers(r, "새싹", NONE_CLASS)
+        rows.append(r)
     stu_en += len(sp)
     stu_pr += sp_pr
     rows.append(make_row(age="학생합계", en=stu_en, pr=stu_pr, bg="#e9ecef", nbg="#e9ecef"))
@@ -487,28 +490,21 @@ if is_admin:
     # ------------------------------------------------------------ 새신자 추가 (관리자)
     st.divider()
     st.markdown("#### 🌟 새신자 추가")
-    st.caption("이름과 반을 고르면 그 반 학생 맨 끝에 추가되고, 선택한 주일 날짜 출석으로 기록됩니다.")
-    new_opts = [(g_, n_) for g_, _, _ in GRADES for n_ in class_numbers(g_)] + [("새싹", NONE_CLASS)]
-
-    def new_label(o):
-        return "🌱 새싹반" if o[0] == "새싹" else f"{names_of[o[0]]} {o[1]}반"
+    st.caption("이름을 입력하면 🌱 새싹반 맨 끝에 추가되고, 선택한 주일 날짜 출석으로 기록됩니다.")
 
     with st.form(f"newcomer_{part}", clear_on_submit=True):
-        nc1, nc2 = st.columns([2, 3])
-        new_name = nc1.text_input("새신자 이름")
-        new_cls = nc2.selectbox("반", new_opts, format_func=new_label)
+        new_name = st.text_input("새신자 이름")
         add_ok = st.form_submit_button("새신자 추가", type="primary", use_container_width=True)
     if add_ok:
         nm = new_name.strip()
-        g_, n_ = new_cls
         if not nm:
             st.error("이름을 입력해 주세요.")
-        elif nm in set(members_of(g_, n_)["name"]):
-            st.warning(f"{new_label(new_cls)}에 이미 '{nm}'이(가) 있습니다.")
+        elif nm in set(members_of("새싹", NONE_CLASS)["name"]):
+            st.warning(f"새싹반에 이미 '{nm}'이(가) 있습니다.")
         else:
-            order = len(members_of(g_, n_))
+            order = len(members_of("새싹", NONE_CLASS))
             res = db.get_client().table("roster_members").insert(
-                {"part": part, "grade": g_, "class_no": None if n_ == NONE_CLASS else n_,
+                {"part": part, "grade": "새싹", "class_no": None,
                  "name": nm, "sort_no": order}).execute()
             db._fetch_cached.clear()
             try:
@@ -519,5 +515,5 @@ if is_admin:
             except Exception:
                 pass
             st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
-            st.session_state["flash"] = f"새신자 '{nm}'을(를) {new_label(new_cls)}에 추가했습니다. (출석 처리됨)"
+            st.session_state["flash"] = f"새신자 '{nm}'을(를) 새싹반에 추가했습니다. (출석 처리됨)"
             st.rerun()
