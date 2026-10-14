@@ -3,7 +3,6 @@ import streamlit as st
 from utils.auth import can_manage, can_view_requests
 from utils.db import fetch, insert, update, delete
 from utils.notify import notify
-from utils.pick import search_one
 
 CATS = ["아이", "가정", "교사", "부서", "기타"]
 STATUS = ["접수", "기도중", "응답"]
@@ -17,36 +16,25 @@ if "flash" in st.session_state:
 manage = can_manage()
 view_list = can_view_requests()
 
-teachers = fetch("teachers", "name")
-if teachers.empty:
-    st.warning("먼저 '교사 · 반 명단'에서 교사를 등록해 주세요.")
-    st.stop()
-for col in ["service_part", "class_no", "role_title"]:
-    if col not in teachers.columns:
-        teachers[col] = None
-teachers = teachers[teachers["is_active"] == True]
-
 tabs = st.tabs(["기도제목 올리기"] + (["기도제목 목록"] if view_list else []))
 
 # ---------------------------------------------------------------- 올리기
 with tabs[0]:
-    teacher_id = search_one(teachers, "선생님", key="pr_t")
-
-    if teacher_id is None:
-        st.info("검색해서 선생님이 한 명으로 정해지면 기도제목을 올릴 수 있습니다.")
-    else:
-        with st.form("prayer_form", clear_on_submit=True):
-            cat = st.selectbox("구분", CATS)
-            content = st.text_area("기도제목 *")
-            if st.form_submit_button("기도제목 보내기", use_container_width=True):
-                if not content.strip():
-                    st.error("기도제목 내용을 입력해 주세요.")
-                else:
-                    insert("prayer_requests", {"teacher_id": teacher_id, "category": cat,
-                                               "content": content.strip()})
-                    notify("prayer", "새 기도제목이 접수되었습니다.")
-                    st.session_state["flash"] = "기도제목이 접수되었습니다."
-                    st.rerun()
+    with st.form("prayer_form", clear_on_submit=True):
+        requester = st.text_input("선생님 이름 *")
+        cat = st.selectbox("구분", CATS)
+        content = st.text_area("기도제목 *")
+        if st.form_submit_button("기도제목 보내기", use_container_width=True):
+            if not requester.strip():
+                st.error("선생님 이름을 입력해 주세요.")
+            elif not content.strip():
+                st.error("기도제목 내용을 입력해 주세요.")
+            else:
+                insert("prayer_requests", {"requester_name": requester.strip(),
+                                           "category": cat, "content": content.strip()})
+                notify("prayer", "새 기도제목이 접수되었습니다.")
+                st.session_state["flash"] = "기도제목이 접수되었습니다."
+                st.rerun()
 
 # ---------------------------------------------------------------- 목록
 if view_list:
@@ -58,7 +46,6 @@ if view_list:
             pick = st.selectbox("상태 보기", ["전체"] + STATUS)
             if pick != "전체":
                 req = req[req["status"] == pick]
-            t_name = dict(zip(teachers["id"], teachers["name"]))
             req = req.assign(_t=pd.to_datetime(req["created_at"], utc=True).dt.tz_convert("Asia/Seoul"))
             st.caption(f"총 {len(req)}건")
             for _, r in req.iterrows():
@@ -66,7 +53,8 @@ if view_list:
                 first = str(r["content"]).replace("\n", " ")[:20]
                 title = f"{ICON[stt]} {r['_t']:%m/%d %H:%M} · {r['category']} · {first}"
                 with st.expander(title):
-                    st.write(f"**선생님**: {t_name.get(r['teacher_id'], '(삭제된 교사)')}")
+                    rn = r.get("requester_name") if isinstance(r.get("requester_name"), str) else "(미입력)"
+                    st.write(f"**선생님**: {rn}")
                     st.write(r["content"])
                     if manage:
                         new_status = st.selectbox("상태", STATUS, index=STATUS.index(stt),
