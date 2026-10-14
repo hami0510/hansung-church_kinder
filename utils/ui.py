@@ -8,16 +8,18 @@ CAT_ICON = {"예배": "⛪", "행사": "🎈", "교사회의": "📋", "교육":
 
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap');
 
-html, body, .stMarkdown, .stMarkdown p, label, button p, input, textarea,
-[data-testid="stSidebar"] p, [data-testid="stCaptionContainer"], [data-baseweb="tab"] p {
-  font-family: 'Gowun Dodum', sans-serif;
+html, body, .stApp, .stMarkdown, .stMarkdown p, label, button, button p, input, textarea, select,
+h1, h2, h3, h4, [data-testid="stSidebar"], [data-testid="stSidebar"] p,
+[data-testid="stCaptionContainer"], [data-baseweb="tab"], [data-baseweb="tab"] p,
+[data-testid="stExpander"] summary, [data-testid="stMetricValue"], [data-testid="stDialog"] {
+  font-family: 'Noto Sans KR', sans-serif !important;
 }
 [data-testid="stIconMaterial"], span[class*="material"] {
   font-family: 'Material Symbols Rounded', 'Material Icons' !important;
 }
-h1, h2, h3, .calhead, .hero-title {font-family: 'Jua', 'Gowun Dodum', sans-serif !important; letter-spacing: 0;}
+h1, h2, h3, .calhead, .hero-title {font-weight: 700; letter-spacing: -0.01em;}
 .block-container {padding-top: 4rem; padding-bottom: 3rem; max-width: 1100px;}
 
 /* ---- 버튼 둥글게 ---- */
