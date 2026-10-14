@@ -3,8 +3,6 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 from utils.db import fetch, insert, update
-from utils.labels import class_label
-from utils.pick import search_one
 
 KST = ZoneInfo("Asia/Seoul")
 STATUS = ["출석", "불참", "미정"]
@@ -19,12 +17,10 @@ now = datetime.now(KST)
 
 
 def target_sunday(today: date) -> date:
-    """다가오는 주일(오늘이 일요일이면 오늘)"""
     return today + timedelta(days=(6 - today.weekday()) % 7)
 
 
 def deadline_of(sunday: date) -> datetime:
-    """해당 주일 직전 토요일 낮 12시"""
     return datetime.combine(sunday - timedelta(days=1),
                             datetime.min.time().replace(hour=12), KST)
 
@@ -38,29 +34,20 @@ st.info(f"📅 **{sunday.month}월 {sunday.day}일 주일** 예정 출석 · "
         + ("⏰ **마감이 지났습니다. 입력은 가능하며 '늦게 제출'로 표시됩니다.**"
            if is_late else "제출 가능"))
 
-teachers = fetch("teachers", "name")
-if teachers.empty:
-    st.warning("먼저 '교사 · 반 명단'에서 교사를 등록해 주세요.")
-    st.stop()
-for col in ["service_part", "class_no", "role_title"]:
-    if col not in teachers.columns:
-        teachers[col] = None
-teachers = teachers[teachers["is_active"] == True]
-
 tab_in, tab_sum = st.tabs(["내 출석 보고", "제출 현황"])
 
 # ---------------------------------------------------------------- 내 출석 보고
 with tab_in:
-    tid = search_one(teachers, "선생님", key="sr")
+    name = st.text_input("선생님 이름", key="sr_name", placeholder="이름을 입력해 주세요").strip()
 
-    if tid is None:
-        st.info("검색해서 선생님이 한 명으로 정해지면 출석 보고를 입력할 수 있습니다.")
+    if not name:
+        st.info("이름을 입력하면 출석 보고를 할 수 있습니다.")
     else:
         rep = fetch("sunday_reports")
         mine = None
-        if not rep.empty:
+        if not rep.empty and "reporter_name" in rep.columns:
             rep["sunday_date"] = pd.to_datetime(rep["sunday_date"]).dt.date
-            m = rep[(rep["teacher_id"] == tid) & (rep["sunday_date"] == sunday)]
+            m = rep[(rep["reporter_name"] == name) & (rep["sunday_date"] == sunday)]
             if not m.empty:
                 mine = m.iloc[0]
                 st.success(
@@ -81,8 +68,8 @@ with tab_in:
                 data = {"status": status, "reason": reason or None,
                         "is_late": bool(is_late), "submitted_at": now.isoformat()}
                 if mine is None:
-                    insert("sunday_reports",
-                           {"teacher_id": tid, "sunday_date": sunday.isoformat(), **data})
+                    insert("sunday_reports", {"reporter_name": name,
+                                              "sunday_date": sunday.isoformat(), **data})
                 else:
                     update("sunday_reports", mine["id"], data)
                 st.session_state["flash"] = ("출석 보고가 제출되었습니다."
@@ -92,42 +79,27 @@ with tab_in:
 # ---------------------------------------------------------------- 제출 현황
 with tab_sum:
     rep = fetch("sunday_reports")
-    sundays = [sunday - timedelta(weeks=i) for i in range(8)]  # 최근 8주
+    sundays = [sunday - timedelta(weeks=i) for i in range(8)]
     pick = st.selectbox("주일 선택", sundays,
                         format_func=lambda d: f"{d.month}월 {d.day}일")
-    if rep.empty:
-        sub = pd.DataFrame(columns=["teacher_id", "status", "reason", "is_late"])
+    if rep.empty or "reporter_name" not in rep.columns:
+        sub = pd.DataFrame(columns=["reporter_name", "status", "reason", "is_late"])
     else:
         rep["sunday_date"] = pd.to_datetime(rep["sunday_date"]).dt.date
-        sub = rep[rep["sunday_date"] == pick]
+        sub = rep[(rep["sunday_date"] == pick) & rep["reporter_name"].notna()]
 
-    n_in = int((sub["status"] == "출석").sum())
-    n_out = int((sub["status"] == "불참").sum())
-    n_tbd = int((sub["status"] == "미정").sum())
-    submitted_ids = set(sub["teacher_id"])
-    missing = teachers[~teachers["id"].isin(submitted_ids)]
+    c1, c2, c3 = st.columns(3)
+    c1.metric("출석", int((sub["status"] == "출석").sum()))
+    c2.metric("불참", int((sub["status"] == "불참").sum()))
+    c3.metric("미정", int((sub["status"] == "미정").sum()))
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("출석", n_in)
-    c2.metric("불참", n_out)
-    c3.metric("미정", n_tbd)
-    c4.metric("미제출", len(missing))
-
-    if not sub.empty:
-        name_of = dict(zip(teachers["id"], teachers["name"]))
-        cls_of = {r["id"]: class_label(r) for _, r in teachers.iterrows()}
-        show = sub.assign(
-            이름=sub["teacher_id"].map(name_of),
-            반=sub["teacher_id"].map(cls_of),
-            상태=sub["status"].map(lambda s: f"{ICON.get(s, '')} {s}"),
-            사유=sub["reason"].fillna(""),
-            비고=sub["is_late"].map(lambda v: "늦게 제출" if v else ""),
-        )[["이름", "반", "상태", "사유", "비고"]]
-        st.dataframe(show, hide_index=True, use_container_width=True)
-
-    st.subheader("⏳ 미제출 선생님")
-    if missing.empty:
-        st.write("모두 제출했습니다. 🎉")
+    if sub.empty:
+        st.write("이 주일에 제출된 보고가 없습니다.")
     else:
-        for _, r in missing.iterrows():
-            st.write(f"- {r['name']} ({class_label(r)})")
+        show = pd.DataFrame({
+            "이름": sub["reporter_name"],
+            "상태": sub["status"].map(lambda s: f"{ICON.get(s, '')} {s}"),
+            "사유": sub["reason"].fillna(""),
+            "비고": sub["is_late"].map(lambda v: "늦게 제출" if v else ""),
+        })
+        st.dataframe(show, hide_index=True, use_container_width=True)
