@@ -122,9 +122,18 @@ for _, a in att[att["sunday_date"] == sunday].iterrows():
     status[a["member_id"]] = (bool(a["present"]),
                               a["reason"] if isinstance(a.get("reason"), str) else "")
 pstat = {}       # 예정: member_id -> (status, reason)
+pmeta = {}       # 예정 마지막 수정: member_id -> (시각 문자열, 입력자)
 for _, a in plan[plan["sunday_date"] == sunday].iterrows():
     pstat[a["member_id"]] = (str(a["status"]),
                              a["reason"] if isinstance(a.get("reason"), str) else "")
+    when = ""
+    try:
+        u = pd.to_datetime(a.get("updated_at"), utc=True).tz_convert("Asia/Seoul")
+        when = f"{u.month}/{u.day} {u:%H:%M}"
+    except Exception:
+        when = ""
+    by = a.get("updated_by") if isinstance(a.get("updated_by"), str) else ""
+    pmeta[a["member_id"]] = (when, by)
 
 
 def members_of(grade, no):
@@ -240,18 +249,23 @@ if is_plan and not plan_ok_table:
     st.error("예정 기록용 테이블(roster_plan)이 아직 없습니다. Supabase SQL을 먼저 실행해 주세요.")
     st.stop()
 
+# 예정 입력 가능 여부: 관리자는 항상, 선생님은 마감(토 12:00) 전까지
+deadline = datetime.combine(sunday - timedelta(days=1), time(12, 0), tzinfo=KST)
+plan_open = is_admin or datetime.now(KST) <= deadline
+
 if is_plan:
-    deadline = datetime.combine(sunday - timedelta(days=1), time(12, 0), tzinfo=KST)
     if datetime.now(KST) > deadline:
         st.warning(f"⏰ 예정 마감됨 ({deadline.month}/{deadline.day} 토 12:00 기준). "
-                   "관리자는 마감 후에도 수정할 수 있습니다.")
+                   "마감 후 수정은 관리자에게 요청해 주세요.")
     else:
         st.info(f"📝 예정 파악 중 · 마감 {deadline.month}/{deadline.day}(토) 12:00")
-    st.caption("이름을 누르면 예정 / 불참 / 미정을 입력합니다." if is_admin
-               else "🔒 입력은 관리자 로그인 후 가능합니다.")
+    if plan_open:
+        st.caption("이름을 누르면 예정 / 불참 / 미정을 입력합니다. (선생님 누구나 입력 가능)")
+    else:
+        st.caption("🔒 마감되어 관리자만 수정할 수 있습니다.")
 else:
     st.caption("이름 칸을 누르면 출결 팝업이 열립니다. (학생·담임·스탭 모두 동일)" if is_admin
-               else "🔒 출결 처리는 관리자 로그인 후 가능합니다.")
+               else "🔒 주일 출결 처리는 관리자만 가능합니다.")
 
 mobile = st.toggle("📱 모바일 보기 (휴대폰에서는 켜 주세요)", key="rg_mobile")
 
@@ -677,12 +691,16 @@ def attend_dialog(member_id: str, name: str, d_iso: str, cur_present, cur_reason
             reason = None
     b1, b2 = st.columns(2)
     if b1.button("저장", type="primary", use_container_width=True, key=f"rgd_s_{member_id}"):
+        if not is_admin:
+            st.stop()
         upsert("roster_attendance",
                [{"member_id": member_id, "sunday_date": d_iso, "present": choice == "출석",
                  "reason": reason if choice == "결석" else None}], "member_id,sunday_date")
         st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
         st.rerun()
     if b2.button("기록 지우기", use_container_width=True, key=f"rgd_d_{member_id}"):
+        if not is_admin:
+            st.stop()
         db.get_client().table("roster_attendance").delete() \
             .eq("member_id", member_id).eq("sunday_date", d_iso).execute()
         db._fetch_cached.clear()
@@ -695,6 +713,9 @@ def plan_dialog(member_id: str, name: str, d_iso: str, cur_status, cur_reason: s
     d = date.fromisoformat(d_iso)
     st.markdown(f"### {name}")
     st.caption(f"{d.month}월 {d.day}일 ({WD[d.weekday()]}) 예배 · {part} · 주중 예정 파악")
+    meta = pmeta.get(member_id)
+    if meta and meta[0]:
+        st.caption(f"🕒 마지막 수정: {meta[0]}" + (f" · {meta[1]}" if meta[1] else ""))
     choice = st.radio("예정", PLAN_STATES, horizontal=True,
                       index=PLAN_STATES.index(cur_status) if cur_status in PLAN_STATES else 0,
                       key=f"pld_c_{member_id}")
@@ -705,14 +726,24 @@ def plan_dialog(member_id: str, name: str, d_iso: str, cur_status, cur_reason: s
         reason = st.selectbox("불참 사유", opts, index=idx, key=f"pld_r_{member_id}")
         if reason == "(사유 선택)":
             reason = None
+    editor = st.text_input("입력하는 선생님 이름 (선택)", key="rg_editor_name",
+                           placeholder="예: 홍길동")
     b1, b2 = st.columns(2)
     if b1.button("저장", type="primary", use_container_width=True, key=f"pld_s_{member_id}"):
+        if not plan_open:
+            st.error("마감되어 저장할 수 없습니다. 관리자에게 요청해 주세요.")
+            st.stop()
         upsert("roster_plan",
                [{"member_id": member_id, "sunday_date": d_iso, "status": choice,
-                 "reason": reason if choice == "불참" else None}], "member_id,sunday_date")
+                 "reason": reason if choice == "불참" else None,
+                 "updated_by": editor.strip() or None,
+                 "updated_at": datetime.now(KST).isoformat()}], "member_id,sunday_date")
         st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
         st.rerun()
     if b2.button("기록 지우기", use_container_width=True, key=f"pld_d_{member_id}"):
+        if not plan_open:
+            st.error("마감되어 수정할 수 없습니다. 관리자에게 요청해 주세요.")
+            st.stop()
         db.get_client().table("roster_plan").delete() \
             .eq("member_id", member_id).eq("sunday_date", d_iso).execute()
         db._fetch_cached.clear()
@@ -720,67 +751,69 @@ def plan_dialog(member_id: str, name: str, d_iso: str, cur_status, cur_reason: s
         st.rerun()
 
 
-if is_admin:
+# 이름 클릭 처리: 예정 단계는 선생님 누구나(마감 전), 실제 단계는 관리자만
+picked = None
+try:
+    sel = resp["selected_rows"]
+    if sel is not None and len(sel) > 0:
+        first = sel.iloc[0] if hasattr(sel, "iloc") else sel[0]
+        picked = first.get("pick") if hasattr(first, "get") else None
+except Exception:
     picked = None
-    try:
-        sel = resp["selected_rows"]
-        if sel is not None and len(sel) > 0:
-            first = sel.iloc[0] if hasattr(sel, "iloc") else sel[0]
-            picked = first.get("pick") if hasattr(first, "get") else None
-    except Exception:
-        picked = None
-    if picked and str(picked).count("|") >= 2:
-        mid, label, stamp = str(picked).split("|", 2)
-        for pre in ("✓ ", "✕ ", "○ ", "? "):
-            label = label.replace(pre, "")
-        if stamp != st.session_state.get("rg_last"):
-            st.session_state["rg_last"] = stamp
-            if is_plan:
+if picked and str(picked).count("|") >= 2:
+    mid, label, stamp = str(picked).split("|", 2)
+    for pre in ("✓ ", "✕ ", "○ ", "? "):
+        label = label.replace(pre, "")
+    if stamp != st.session_state.get("rg_last"):
+        st.session_state["rg_last"] = stamp
+        if is_plan:
+            if plan_open:
                 s = pstat.get(mid)
                 plan_dialog(mid, label, sunday.isoformat(), (s[0] if s else None), (s[1] if s else ""))
             else:
-                s = status.get(mid)
-                attend_dialog(mid, label, sunday.isoformat(),
-                              (s[0] if s else None), (s[1] if s else ""))
+                st.warning("⏰ 예정 입력이 마감되었습니다. 수정은 관리자에게 요청해 주세요.")
+        elif is_admin:
+            s = status.get(mid)
+            attend_dialog(mid, label, sunday.isoformat(),
+                          (s[0] if s else None), (s[1] if s else ""))
 
-    # ------------------------------------------------------------ 새신자 추가 (실제 단계, 관리자)
-    if not is_plan:
-        st.divider()
-        st.markdown("#### 🌟 새신자 추가")
-        st.caption("이름을 입력하면 🌱 새싹반에 추가(가나다순)되고, 선택한 주일 날짜 출석으로 기록됩니다.")
+# ---------------------------------------------------------------- 새신자 추가 (실제 단계, 관리자)
+if is_admin and not is_plan:
+    st.divider()
+    st.markdown("#### 🌟 새신자 추가")
+    st.caption("이름을 입력하면 🌱 새싹반에 추가(가나다순)되고, 선택한 주일 날짜 출석으로 기록됩니다.")
 
-        with st.form(f"newcomer_{part}", clear_on_submit=True):
-            new_name = st.text_input("새신자 이름")
-            add_ok = st.form_submit_button("새신자 추가", type="primary", use_container_width=True)
-        if add_ok:
-            nm = new_name.strip()
-            if not nm:
-                st.error("이름을 입력해 주세요.")
-            elif nm in set(members_of("새싹", NONE_CLASS)["name"]):
-                st.warning(f"새싹반에 이미 '{nm}'이(가) 있습니다.")
-            else:
-                order = len(members_of("새싹", NONE_CLASS))
-                res = db.get_client().table("roster_members").insert(
-                    {"part": part, "grade": "새싹", "class_no": None,
-                     "name": nm, "sort_no": order}).execute()
+    with st.form(f"newcomer_{part}", clear_on_submit=True):
+        new_name = st.text_input("새신자 이름")
+        add_ok = st.form_submit_button("새신자 추가", type="primary", use_container_width=True)
+    if add_ok:
+        nm = new_name.strip()
+        if not nm:
+            st.error("이름을 입력해 주세요.")
+        elif nm in set(members_of("새싹", NONE_CLASS)["name"]):
+            st.warning(f"새싹반에 이미 '{nm}'이(가) 있습니다.")
+        else:
+            order = len(members_of("새싹", NONE_CLASS))
+            res = db.get_client().table("roster_members").insert(
+                {"part": part, "grade": "새싹", "class_no": None,
+                 "name": nm, "sort_no": order}).execute()
+            db._fetch_cached.clear()
+            try:
+                new_id = res.data[0]["id"]
+                upsert("roster_attendance",
+                       [{"member_id": new_id, "sunday_date": sunday.isoformat(),
+                         "present": True, "reason": None}], "member_id,sunday_date")
+            except Exception:
+                pass
+            try:
+                allsp = db.get_client().table("roster_members").select("id,name") \
+                    .eq("part", part).eq("grade", "새싹").execute().data or []
+                for i, r in enumerate(sorted(allsp, key=lambda x: x["name"])):
+                    db.get_client().table("roster_members").update({"sort_no": i}) \
+                        .eq("id", r["id"]).execute()
                 db._fetch_cached.clear()
-                try:
-                    new_id = res.data[0]["id"]
-                    upsert("roster_attendance",
-                           [{"member_id": new_id, "sunday_date": sunday.isoformat(),
-                             "present": True, "reason": None}], "member_id,sunday_date")
-                except Exception:
-                    pass
-                # 새싹반 가나다순 재정렬
-                try:
-                    allsp = db.get_client().table("roster_members").select("id,name") \
-                        .eq("part", part).eq("grade", "새싹").execute().data or []
-                    for i, r in enumerate(sorted(allsp, key=lambda x: x["name"])):
-                        db.get_client().table("roster_members").update({"sort_no": i}) \
-                            .eq("id", r["id"]).execute()
-                    db._fetch_cached.clear()
-                except Exception:
-                    pass
-                st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
-                st.session_state["flash"] = f"새신자 '{nm}'을(를) 새싹반에 추가했습니다. (출석 처리됨)"
-                st.rerun()
+            except Exception:
+                pass
+            st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
+            st.session_state["flash"] = f"새신자 '{nm}'을(를) 새싹반에 추가했습니다. (출석 처리됨)"
+            st.rerun()
