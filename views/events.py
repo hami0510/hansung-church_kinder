@@ -1,219 +1,201 @@
-import html
-from datetime import date, time
+from datetime import date, time, timedelta
 import pandas as pd
 import streamlit as st
 from utils.db import fetch, insert, update, delete
 
 st.title("📅 일정 관리")
 
-CATEGORIES = ["예배", "행사", "교사회의", "교육", "심방", "기타"]
-DOT = {"예배": "🟣", "행사": "🟠", "교사회의": "🟤", "교육": "🟢", "심방": "🔵", "기타": "⚪"}
+CATS = ["예배", "행사", "교사회의", "교육", "심방", "기타"]
+DOT = {"심방": "🔵", "예배": "🟡", "행사": "🟢", "교사회의": "🟣", "교육": "🟠", "기타": "⚪"}
 WD = "월화수목금토일"
+today = date.today()
 
-# 이 화면 전용 스타일 (</style> 안쪽에 있어야 합니다)
 st.markdown("""
 <style>
-.evday {display: flex; align-items: center; gap: .5rem; margin: 1.2rem 0 .1rem;
-        font-size: .85rem; font-weight: 700; color: #6b7c93;}
-.evday.sun {color: #d6336c;}
-.evday.sat {color: #1c64f2;}
-.evday .now {background: #4a9fe0; color: #fff; border-radius: 999px; padding: 0 .55rem;
-             font-size: .72rem;}
-.evline {display: flex; align-items: baseline; gap: .7rem; padding: .5rem .2rem;
-         border-bottom: 1px solid rgba(128,128,128,.18); line-height: 1.35;}
-.evline.past {opacity: .5;}
-.evline .tm {flex: 0 0 3.2rem; font-weight: 700; color: #3b5f85;
-             font-variant-numeric: tabular-nums;}
-.evline .bd {flex: 1; min-width: 0;}
-.evline .tt {font-weight: 700; color: #1b3a5c;}
-.evline .cg {font-size: .74rem; padding: .05rem .5rem; margin-left: .35rem; border-radius: 999px;
-             background: #e7f1ff; color: #2b5d8a; font-weight: 400;}
-.evline .lc {font-size: .84rem; color: #8a97a8;}
-.st-key-evlist [data-testid="stHorizontalBlock"] {flex-wrap: nowrap !important; align-items: center;
-  gap: .3rem !important;}
-.st-key-evlist [data-testid="stColumn"]:last-child {flex: 0 0 4.2rem !important; min-width: 4.2rem !important;}
-.st-key-evlist [data-testid="stColumn"]:first-child {flex: 1 1 0 !important; min-width: 0 !important;}
-.st-key-evlist .stButton > button {padding: .15rem .3rem; min-height: 2rem; font-size: .85rem;}
+.dayband {display: flex; align-items: center; gap: .5rem; background: #eaf5ff;
+          border-left: 5px solid #8ec9f5; border-radius: 10px; padding: .35rem .8rem;
+          margin: 1rem 0 .2rem; font-weight: 800; color: #1b3a5c; font-size: .92rem;}
+.dayband.today {background: #fff3bf; border-left-color: #f2c744;}
+.dayband .badge {background: #4a9fe0; color: #fff; border-radius: 999px; padding: 0 .55rem;
+                 font-size: .72rem; font-weight: 700;}
+.evlegend {font-size: .78rem; color: #6b7c93; margin: .2rem 0 .4rem;}
+.st-key-evlist [data-testid="stVerticalBlock"] {gap: 0;}
+.st-key-evlist .stButton > button {
+  width: 100%; min-height: 2.5rem; border: none !important; background: transparent !important;
+  box-shadow: none !important; border-bottom: 1px solid #edf1f6 !important; border-radius: 0 !important;
+  justify-content: flex-start !important; text-align: left !important; padding: .2rem .6rem;
+  font-weight: 500; color: #1b3a5c;}
+.st-key-evlist .stButton > button > div,
+.st-key-evlist .stButton > button p {
+  width: 100%; text-align: left !important; justify-content: flex-start !important; margin: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.st-key-evlist .stButton > button:hover {background: #f1f8ff !important;}
 </style>
 """, unsafe_allow_html=True)
 
+if "flash" in st.session_state:
+    st.success(st.session_state.pop("flash"))
+
 
 def fmt_time(v):
-    """DB의 '10:00:00' → '10:00', 비어 있으면 ''"""
-    if v is None or pd.isna(v):
+    if v is None or (not isinstance(v, str) and pd.isna(v)):
         return ""
     return str(v)[:5]
 
 
-def prepare(df):
-    df = df.copy()
-    df["event_date"] = pd.to_datetime(df["event_date"]).dt.date
-    if "event_time" not in df.columns:
-        df["event_time"] = None
-    df["time_str"] = df["event_time"].apply(fmt_time)
-    return df
+def to_time(s):
+    try:
+        h, m = str(s)[:5].split(":")
+        return time(int(h), int(m))
+    except Exception:
+        return time(9, 0)
 
 
-def s_or_empty(v):
-    return v if isinstance(v, str) else ""
+def s(v):
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except Exception:
+        pass
+    return str(v)
 
 
-def label_of(r):
-    t = f" {r['time_str']}" if r["time_str"] else ""
-    return f"{r['event_date']}{t} · {r['title']} ({r.get('category') or '구분 없음'})"
+ev = fetch("events", "event_date")
+if not ev.empty:
+    ev["event_date"] = pd.to_datetime(ev["event_date"]).dt.date
+    if "event_time" not in ev.columns:
+        ev["event_time"] = None
+    ev["time_str"] = ev["event_time"].apply(fmt_time)
+    ev = ev.assign(_k=ev["time_str"].replace("", "99:99")).sort_values(["event_date", "_k"])
 
 
 # ---------------------------------------------------------------- 수정 팝업
-@st.dialog("✏️ 일정 수정")
-def edit_dialog(eid: str):
-    ev_all = prepare(fetch("events", "event_date"))
-    m = ev_all[ev_all["id"].astype(str) == eid]
-    if m.empty:
-        st.warning("이미 삭제되었거나 찾을 수 없는 일정입니다.")
-        return
-    row = m.iloc[0]
-
-    cur_cat = s_or_empty(row.get("category"))
-    cat_opts = CATEGORIES + ([cur_cat] if cur_cat and cur_cat not in CATEGORIES else [])
-    cur_time = None
-    if row["time_str"]:
-        try:
-            h, mi = row["time_str"].split(":")[:2]
-            cur_time = time(int(h), int(mi))
-        except Exception:
-            cur_time = None
-
-    with st.form(f"edit_form_{eid}"):
-        e_title = st.text_input("제목 *", value=s_or_empty(row.get("title")))
-        e_use_time = st.checkbox("시간 지정 (체크 해제 후 저장하면 시간이 제거됩니다)",
-                                 value=cur_time is not None)
-        c1, c2 = st.columns(2)
-        e_date = c1.date_input("날짜", value=row["event_date"])
-        e_time = c2.time_input("시간", value=cur_time or time(10, 0), step=900)
-        e_cat = st.selectbox("구분", cat_opts,
-                             index=cat_opts.index(cur_cat) if cur_cat in cat_opts else 0)
-        e_loc = st.text_input("장소", value=s_or_empty(row.get("location")))
-        e_desc = st.text_area("내용", value=s_or_empty(row.get("description")))
+@st.dialog("일정 수정")
+def edit_dialog(row):
+    rid = str(row["id"])
+    with st.form(f"edit_{rid}"):
+        title = st.text_input("제목 *", value=s(row["title"]))
+        d = st.date_input("날짜", value=row["event_date"])
+        use_t = st.checkbox("시간 지정", value=bool(row["time_str"]))
+        t = st.time_input("시간", value=to_time(row["time_str"]) if row["time_str"] else time(9, 0))
+        cat_cur = s(row.get("category"))
+        cat = st.selectbox("구분", CATS, index=CATS.index(cat_cur) if cat_cur in CATS else len(CATS) - 1)
+        loc = st.text_input("장소", value=s(row.get("location")))
+        desc = st.text_area("설명", value=s(row.get("description")))
         saved = st.form_submit_button("저장", type="primary", use_container_width=True)
-
     if saved:
-        if not e_title.strip():
+        if not title.strip():
             st.error("제목은 필수입니다.")
         else:
             update("events", row["id"], {
-                "title": e_title.strip(), "event_date": e_date.isoformat(),
-                "event_time": e_time.strftime("%H:%M") if e_use_time else None,
-                "category": e_cat, "location": e_loc or None,
-                "description": e_desc or None,
-            })
-            st.session_state["flash"] = f"'{e_title.strip()}' 일정을 수정했습니다."
+                "title": title.strip(), "event_date": d.isoformat(),
+                "event_time": t.strftime("%H:%M") if use_t else None,
+                "category": cat, "location": loc.strip() or None,
+                "description": desc.strip() or None})
+            st.session_state["flash"] = "일정을 수정했습니다."
+            st.rerun()
+    with st.expander("🗑️ 이 일정 삭제"):
+        ok = st.checkbox("삭제에 동의합니다", key=f"edok_{rid}")
+        if st.button("삭제하기", key=f"eddel_{rid}", type="primary", disabled=not ok,
+                     use_container_width=True):
+            delete("events", row["id"])
+            st.session_state["flash"] = "일정을 삭제했습니다."
             st.rerun()
 
-    st.divider()
-    ok = st.checkbox("이 일정을 삭제합니다", key=f"del_ok_{eid}")
-    if st.button("🗑️ 삭제", disabled=not ok, key=f"del_btn_{eid}", use_container_width=True):
-        delete("events", row["id"])
-        st.session_state["flash"] = "일정을 삭제했습니다."
-        st.rerun()
+
+def render_days(df):
+    """날짜별 띠 + 한 줄 일정 (줄을 누르면 수정창)"""
+    for d, g in df.groupby("event_date", sort=True):
+        is_today = d == today
+        badge = "<span class='badge'>오늘</span>" if is_today else ""
+        st.markdown(f"<div class='dayband{' today' if is_today else ''}'>"
+                    f"{d.month}월 {d.day}일 ({WD[d.weekday()]}) {badge}</div>",
+                    unsafe_allow_html=True)
+        for _, r in g.iterrows():
+            dot = DOT.get(s(r.get("category")), "⚪")
+            tm = r["time_str"] or "종일"
+            loc = s(r.get("location"))
+            label = f"{tm}   {dot} {s(r['title'])}" + (f"  ·  {loc}" if loc else "")
+            if st.button(label, key=f"ev_{r['id']}", use_container_width=True):
+                edit_dialog(r)
 
 
-# 삭제·수정 후 완료 메시지 (등록은 toast로 표시)
-if "flash" in st.session_state:
-    st.success(st.session_state.pop("flash"))
-
-tab_list, tab_add, tab_del = st.tabs(["일정 보기", "일정 등록", "일정 일괄 삭제"])
+tab_view, tab_add, tab_del = st.tabs(["일정 보기", "일정 등록", "일정 일괄 삭제"])
 
 # ---------------------------------------------------------------- 일정 보기
-with tab_list:
-    ev = fetch("events", "event_date")
+with tab_view:
+    c1, c2 = st.columns([1, 2])
+    hide_past = c1.checkbox("지난 일정 숨기기", value=True)
+    kw = c2.text_input("검색", placeholder="제목·장소·구분으로 검색",
+                       label_visibility="collapsed").strip()
+    st.markdown("<div class='evlegend'>" + "  ".join(f"{v} {k}" for k, v in DOT.items())
+                + "  · 줄을 누르면 수정</div>", unsafe_allow_html=True)
+
     if ev.empty:
         st.info("등록된 일정이 없습니다.")
     else:
-        ev = prepare(ev)
-        today = date.today()
-        c1, c2 = st.columns([1, 2])
-        only_future = c1.checkbox("지난 일정 숨기기", value=True)
-        kw = c2.text_input("🔍 검색", placeholder="제목·장소·구분으로 검색",
-                           label_visibility="collapsed").strip().replace(" ", "")
-        if only_future:
-            ev = ev[ev["event_date"] >= today]
+        view = ev.copy()
+        if hide_past:
+            view = view[view["event_date"] >= today]
         if kw:
-            hay = (ev["title"].fillna("") + ev["location"].fillna("") + ev["category"].fillna("")
-                   ).str.replace(" ", "")
-            ev = ev[hay.str.contains(kw, case=False, na=False)]
-        if ev.empty:
+            hay = (view["title"].fillna("") + view["location"].fillna("") + view["category"].fillna(""))
+            view = view[hay.str.contains(kw, case=False, na=False)]
+        if view.empty:
             st.info("표시할 일정이 없습니다.")
         else:
-            ev = ev.assign(_k=ev["time_str"].replace("", "99:99")).sort_values(["event_date", "_k"])
             with st.container(key="evlist"):
-                for d, grp in ev.groupby("event_date", sort=True):
-                    cls = "sun" if d.weekday() == 6 else ("sat" if d.weekday() == 5 else "")
-                    now = "<span class='now'>오늘</span>" if d == today else ""
-                    st.markdown(
-                        f"<div class='evday {cls}'>{d.month}월 {d.day}일 {WD[d.weekday()]}요일 {now}</div>",
-                        unsafe_allow_html=True)
-                    for _, r in grp.iterrows():
-                        tm = r["time_str"] or "종일"
-                        cat = s_or_empty(r.get("category"))
-                        loc = s_or_empty(r.get("location"))
-                        tag = f"<span class='cg'>{html.escape(cat)}</span>" if cat else ""
-                        place = f"<div class='lc'>📍 {html.escape(loc)}</div>" if loc else ""
-                        past = " past" if d < today else ""
-                        left, right = st.columns([5, 1])
-                        left.markdown(
-                            f"<div class='evline{past}'>"
-                            f"<span class='tm'>{html.escape(tm)}</span>"
-                            f"<div class='bd'><span class='tt'>{html.escape(str(r['title']))}</span>{tag}{place}</div>"
-                            f"</div>", unsafe_allow_html=True)
-                        if right.button("수정", key=f"ev_{r['id']}", use_container_width=True):
-                            edit_dialog(str(r["id"]))
+                limit = today + timedelta(days=7)
+                if kw:
+                    render_days(view)
+                else:
+                    near = view[view["event_date"] <= limit]
+                    later = view[view["event_date"] > limit]
+                    if not near.empty:
+                        render_days(near)
+                    else:
+                        st.caption("이번 주 일정이 없습니다.")
+                    if not later.empty:
+                        with st.expander(f"이후 일정 {len(later)}건 보기"):
+                            render_days(later)
 
 # ---------------------------------------------------------------- 일정 등록
 with tab_add:
     with st.form("add_event", clear_on_submit=True):
         title = st.text_input("제목 *")
-        use_time = st.checkbox("시간 지정 (체크하면 아래 시간이 저장됩니다)")
-
-        c1, c2, c3 = st.columns(3)
-        d = c1.date_input("날짜", value=date.today())
-        t = c2.time_input("시간", value=time(10, 0), step=900)  # 15분 단위
-        cat = c3.selectbox("구분", CATEGORIES)
-
+        d = st.date_input("날짜", value=today)
+        use_t = st.checkbox("시간 지정")
+        t = st.time_input("시간", value=time(9, 0))
+        cat = st.selectbox("구분", CATS)
         loc = st.text_input("장소")
-        desc = st.text_area("내용")
-
-        submitted = st.form_submit_button("등록", use_container_width=True)
-
+        desc = st.text_area("설명")
+        submitted = st.form_submit_button("일정 등록", type="primary", use_container_width=True)
     if submitted:
         if not title.strip():
             st.error("제목은 필수입니다.")
         else:
             insert("events", {
                 "title": title.strip(), "event_date": d.isoformat(),
-                "event_time": t.strftime("%H:%M") if use_time else None,
-                "category": cat, "location": loc or None, "description": desc or None,
-                "created_by": "교사",
-            })
-            st.toast("일정이 등록되었습니다.", icon="✅")
+                "event_time": t.strftime("%H:%M") if use_t else None,
+                "category": cat, "location": loc.strip() or None,
+                "description": desc.strip() or None})
+            st.toast("일정을 등록했습니다.", icon="✅")
 
-# ---------------------------------------------------------------- 일정 일괄 삭제
+# ---------------------------------------------------------------- 일괄 삭제
 with tab_del:
-    st.subheader("일정 일괄 삭제")
-    ev_all = fetch("events", "event_date")
-    if ev_all.empty:
+    if ev.empty:
         st.info("삭제할 일정이 없습니다.")
     else:
-        ev_all = prepare(ev_all)
-        ev_all = ev_all.assign(_k=ev_all["time_str"].replace("", "99:99")).sort_values(
-            ["event_date", "_k"], ascending=False)
-        opts_d = {label_of(r) + f"  #{str(r['id'])[:4]}": r["id"] for _, r in ev_all.iterrows()}
-        picked = st.multiselect("삭제할 일정 선택 (여러 개 가능)", list(opts_d))
-        if picked:
-            st.warning(f"선택한 {len(picked)}개 일정이 삭제됩니다. 되돌릴 수 없습니다.")
-            confirm = st.checkbox("삭제하는 것에 동의합니다", key="ev_del_confirm")
-            if st.button("선택한 일정 삭제", type="primary", disabled=not confirm,
-                         use_container_width=True):
-                for label in picked:
-                    delete("events", opts_d[label])
-                st.session_state["flash"] = f"{len(picked)}개 일정을 삭제했습니다."
-                st.rerun()
+        opts = {}
+        for _, r in ev.iterrows():
+            lab = f"{r['event_date']:%m/%d}({WD[r['event_date'].weekday()]}) {r['time_str'] or '종일'} · {s(r['title'])}"
+            opts[lab + f"  [{str(r['id'])[:4]}]"] = r["id"]
+        picked = st.multiselect("삭제할 일정 선택", list(opts.keys()))
+        ok = st.checkbox("선택한 일정을 삭제하는 데 동의합니다")
+        if st.button(f"선택 {len(picked)}건 삭제", type="primary",
+                     disabled=not (picked and ok), use_container_width=True):
+            for lab in picked:
+                delete("events", opts[lab])
+            st.session_state["flash"] = f"{len(picked)}건을 삭제했습니다."
+            st.rerun()
