@@ -616,15 +616,48 @@ else:
 
 name_of = {r["id"]: str(r["name"]) for _, r in mem.iterrows()}
 
+
+# ---------------------------------------------------------------- 불참·결석 목록 (반별로 묶어 접어 두기)
+def short_reason(r):
+    return (r or "사유 없음").split("(")[0].strip()
+
+
+def grouped_lines(pairs):
+    """pairs: [(member_id, reason)] -> (반별 목록, 사유별 집계)"""
+    by_cls, by_reason = {}, {}
+    idx = {r["id"]: (r["grade"], int(r["class_no"])) for _, r in mem.iterrows()}
+    for mid, rsn in pairs:
+        if mid not in idx or mid not in name_of:
+            continue
+        g, n = idx[mid]
+        if g == "스탭":
+            key = "스탭"
+        elif g == "새싹":
+            key = "새싹"
+        elif g.startswith("담임"):
+            key = g + (str(n) if n else "")
+        else:
+            key = g + (str(n) if n else "")
+        sr = short_reason(rsn)
+        by_cls.setdefault(key, []).append(f"{name_of[mid]}({sr})")
+        by_reason[sr] = by_reason.get(sr, 0) + 1
+    return by_cls, by_reason
+
+
+def show_grouped(title, pairs):
+    if not pairs:
+        return
+    by_cls, by_reason = grouped_lines(pairs)
+    with st.expander(f"{title} {len(pairs)}명 (눌러서 보기)", expanded=False):
+        st.caption(" · ".join(f"{k} {v}명" for k, v in
+                              sorted(by_reason.items(), key=lambda x: -x[1])))
+        for k in sorted(by_cls):
+            st.markdown(f"**{k}** · " + ", ".join(by_cls[k]))
+
+
 # ---------------------------------------------------------------- 단계별 부가 정보
 if is_plan:
-    no_list = [f"{name_of[m]}({s[1] or '사유 없음'})" for m, s in pstat.items()
-               if s[0] == "불참" and m in name_of]
-    if no_list:
-        st.markdown(
-            "<div style='background:#fff5f5;border:1px solid #ffc9c9;border-radius:12px;"
-            "padding:.5rem .8rem;font-size:.85rem;color:#b91c1c'>✕ <b>불참 예정</b> · "
-            + ", ".join(no_list) + "</div>", unsafe_allow_html=True)
+    show_grouped("✕ 불참 예정", [(m, s[1]) for m, s in pstat.items() if s[0] == "불참"])
 
     # 반별 예정 요약 (카톡 복사용)
     lines = [f"[유치{p}부 {sunday.month}/{sunday.day}({WD[sunday.weekday()]}) 예배 참석 예정]"]
@@ -662,13 +695,7 @@ else:
             "<div style='background:#fff9db;border:1px solid #ffe066;border-radius:12px;"
             "padding:.5rem .8rem;font-size:.85rem;color:#7c5e00'>" + "<br>".join(box) + "</div>",
             unsafe_allow_html=True)
-    absent = [f"{name_of[m]}({s[1] or '사유 없음'})" for m, s in status.items()
-              if (not s[0]) and m in name_of]
-    if absent:
-        st.markdown(
-            "<div style='background:#fff5f5;border:1px solid #ffc9c9;border-radius:12px;"
-            "padding:.5rem .8rem;font-size:.85rem;color:#b91c1c;margin-top:.4rem'>❌ <b>결석</b> · "
-            + ", ".join(absent) + "</div>", unsafe_allow_html=True)
+    show_grouped("❌ 결석", [(m, s[1]) for m, s in status.items() if not s[0]])
 
 
 # ---------------------------------------------------------------- 팝업
