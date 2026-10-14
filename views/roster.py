@@ -15,6 +15,12 @@ GRADE_ORDER = {"조이": 0, "해피": 1, "홀리": 2, "새싹": 3, "스탭": 4}
 NONE_CLASS = 0  # 새싹반·스탭용 번호
 WD = "월화수목금토일"
 
+# 명단이 비어 있어도 항상 보여줄 기본 반 수 (이미지 기준)
+DEFAULT_CLASSES = {
+    "1부": {"조이": 4, "해피": 4, "홀리": 4},
+    "2부": {"조이": 5, "해피": 3, "홀리": 5},
+}
+
 st.markdown("""
 <style>
 .rs-wrap {overflow-x: auto; margin: .4rem 0 1rem;}
@@ -40,7 +46,7 @@ def parse_names(text: str):
     out = []
     for line in (text or "").replace(",", "\n").replace("，", "\n").splitlines():
         n = line.strip()
-        if n:
+        if n and n not in out:
             out.append(n)
     return out
 
@@ -95,7 +101,6 @@ def members_of(grade, no):
 
 
 def build_table():
-    # 한 반의 최대 인원에 맞춰 이름 칸 수 결정 (최소 10칸)
     counts = mem.groupby(["grade", "class_no"]).size() if not mem.empty else pd.Series(dtype=int)
     ncols = max(10, int(counts.max()) if len(counts) else 10)
     total_cols = ncols + 5
@@ -124,7 +129,8 @@ def build_table():
     stu_en = stu_pr = 0
     for grade, age, color in GRADES:
         g = mem[mem["grade"] == grade]
-        nos = sorted(set(g["class_no"]) | set(cls[cls["grade"] == grade]["class_no"]))
+        base = set(range(1, DEFAULT_CLASSES.get(part, {}).get(grade, 0) + 1))
+        nos = sorted(base | set(g["class_no"]) | set(cls[cls["grade"] == grade]["class_no"]))
         nos = [n for n in nos if n > 0]
         if not nos:
             continue
@@ -172,93 +178,115 @@ def build_table():
     return f"<div class='rs-wrap'><table class='rs'>{''.join(rows)}</table></div>"
 
 
-tab_names = ["출석부"] + (["출석 체크", "명단 관리"] if is_admin else [])
-tabs = st.tabs(tab_names)
+# 탭 대신 선택형 메뉴: 저장 후에도 보던 화면이 유지됨
+VIEWS = ["출석부"] + (["출석 체크", "명단 관리"] if is_admin else [])
+if st.session_state.get("rs_view") not in VIEWS:
+    st.session_state["rs_view"] = VIEWS[0]
+view = st.segmented_control("화면", VIEWS, key="rs_view", label_visibility="collapsed")
+view = view or VIEWS[0]
+
+names_of = {a: f"{b} {a}" for a, b, _ in GRADES}
+
+
+def opt_label(o):
+    g_, no_ = o
+    if g_ == "새싹":
+        return "🌱 새싹반"
+    if g_ == "스탭":
+        return "🧑‍🏫 스탭(교사)"
+    return f"{names_of[g_]} {no_}반"
+
 
 # ================================================================ 출석부 (표)
-with tabs[0]:
+if view == "출석부":
     if mem.empty:
-        st.info("등록된 명단이 없습니다." + (" '명단 관리' 탭에서 이름을 붙여넣어 등록하세요." if is_admin else ""))
+        st.info("등록된 명단이 없습니다." + (" '명단 관리'에서 이름을 붙여넣어 등록하세요." if is_admin else ""))
     st.markdown(build_table(), unsafe_allow_html=True)
     st.caption("초록색으로 표시된 이름이 출석한 사람입니다.")
 
-if is_admin:
-    names_of = {a: f"{b} {a}" for a, b, _ in GRADES}
-
-    def opt_label(o):
-        g_, no_ = o
-        if g_ == "새싹":
-            return "🌱 새싹반"
-        if g_ == "스탭":
-            return "🧑‍🏫 스탭(교사)"
-        return f"{names_of[g_]} {no_}반"
-
-    # ============================================================ 출석 체크
-    with tabs[1]:
-        combos = sorted({(r.grade, int(r.class_no)) for r in mem.itertuples()},
-                        key=lambda x: (GRADE_ORDER.get(x[0], 9), x[1]))
-        if not combos:
-            st.info("먼저 '명단 관리'에서 명단을 등록해 주세요.")
-        else:
-            sel = st.selectbox("반 선택", combos, format_func=opt_label, key="att_sel")
-            g, no = sel
-            kids = members_of(g, no)
-            names = kids["name"].tolist()
-            default = [r["name"] for _, r in kids.iterrows() if r["id"] in present_ids]
-            with st.form(f"att_{part}_{sunday}_{g}_{no}"):
-                chosen = st.multiselect("출석한 사람 (선택하지 않은 사람은 결석)", names, default=default)
-                saved = st.form_submit_button("출석 저장", type="primary", use_container_width=True)
-            if saved:
-                rows_ = [{"member_id": r["id"], "sunday_date": sunday.isoformat(),
-                          "present": r["name"] in chosen} for _, r in kids.iterrows()]
-                upsert("roster_attendance", rows_, "member_id,sunday_date")
-                st.session_state["flash"] = f"{opt_label(sel)} 출석을 저장했습니다. ({len(chosen)}/{len(names)})"
-                st.rerun()
-
-        st.divider()
-        with st.form(f"vis_{part}_{sunday}"):
-            v_new = st.number_input("방문자 수", min_value=0, value=visitors, step=1)
-            v_saved = st.form_submit_button("방문자 수 저장", use_container_width=True)
-        if v_saved:
-            upsert("roster_visitors", [{"part": part, "sunday_date": sunday.isoformat(),
-                                        "count": int(v_new)}], "part,sunday_date")
-            st.session_state["flash"] = "방문자 수를 저장했습니다."
+# ================================================================ 출석 체크
+elif view == "출석 체크" and is_admin:
+    combos = sorted({(r.grade, int(r.class_no)) for r in mem.itertuples()},
+                    key=lambda x: (GRADE_ORDER.get(x[0], 9), x[1]))
+    if not combos:
+        st.info("먼저 '명단 관리'에서 명단을 등록해 주세요.")
+    else:
+        sel = st.selectbox("반 선택", combos, format_func=opt_label, key=f"att_sel_{part}")
+        g, no = sel
+        kids = members_of(g, no)
+        names = kids["name"].tolist()
+        default = [r["name"] for _, r in kids.iterrows() if r["id"] in present_ids]
+        with st.form(f"att_{part}_{sunday}_{g}_{no}"):
+            chosen = st.multiselect("출석한 사람 (선택하지 않은 사람은 결석)", names, default=default)
+            saved = st.form_submit_button("출석 저장", type="primary", use_container_width=True)
+        if saved:
+            rows_ = [{"member_id": r["id"], "sunday_date": sunday.isoformat(),
+                      "present": r["name"] in chosen} for _, r in kids.iterrows()]
+            upsert("roster_attendance", rows_, "member_id,sunday_date")
+            st.session_state["flash"] = f"{opt_label(sel)} 출석을 저장했습니다. ({len(chosen)}/{len(names)})"
             st.rerun()
 
-    # ============================================================ 명단 관리
-    with tabs[2]:
-        st.caption("이름은 쉼표 또는 줄바꿈으로 구분해 붙여넣을 수 있습니다. "
-                   "저장하면 해당 반의 명단이 **입력한 내용으로 바뀝니다.** "
-                   "(빠진 이름은 삭제되고, 출석 기록도 함께 지워집니다.)")
-        options = ([(g_, n_) for g_, _, _ in GRADES for n_ in range(1, 6)]
-                   + [("새싹", NONE_CLASS), ("스탭", NONE_CLASS)])
-        sel2 = st.selectbox("편집할 반", options, format_func=opt_label, key="edit_sel")
-        g2, no2 = sel2
-        cur = members_of(g2, no2)
-        mt = cls[(cls["grade"] == g2) & (cls["class_no"] == no2)]
-        cur_teacher = mt.iloc[0]["teachers"] if (not mt.empty and isinstance(mt.iloc[0]["teachers"], str)) else ""
+    st.divider()
+    with st.form(f"vis_{part}_{sunday}"):
+        v_new = st.number_input("방문자 수", min_value=0, value=visitors, step=1)
+        v_saved = st.form_submit_button("방문자 수 저장", use_container_width=True)
+    if v_saved:
+        upsert("roster_visitors", [{"part": part, "sunday_date": sunday.isoformat(),
+                                    "count": int(v_new)}], "part,sunday_date")
+        st.session_state["flash"] = "방문자 수를 저장했습니다."
+        st.rerun()
 
-        with st.form(f"edit_{part}_{g2}_{no2}"):
-            teachers_txt = st.text_area("담임샘 / 담당 (줄바꿈으로 구분)", value=cur_teacher, height=80)
-            names_txt = st.text_area("이름 목록", value="\n".join(cur["name"].tolist()), height=180,
-                                     help="한 줄에 한 명, 또는 쉼표로 구분")
-            saved2 = st.form_submit_button("저장", type="primary", use_container_width=True)
+# ================================================================ 명단 관리
+elif view == "명단 관리" and is_admin:
+    st.caption("이름은 쉼표 또는 줄바꿈으로 구분해 붙여넣을 수 있습니다. "
+               "저장하면 해당 반의 명단이 **입력한 내용으로 바뀝니다.** "
+               "(빠진 이름은 삭제되고, 출석 기록도 함께 지워집니다.)")
+    max_no = {g_: max(DEFAULT_CLASSES.get(part, {}).get(g_, 0), 5) for g_, _, _ in GRADES}
+    options = ([(g_, n_) for g_, _, _ in GRADES for n_ in range(1, max_no[g_] + 1)]
+               + [("새싹", NONE_CLASS), ("스탭", NONE_CLASS)])
 
-        if saved2:
-            new_names = parse_names(names_txt)
-            old = {r["name"]: r["id"] for _, r in cur.iterrows()}
-            for n, mid in old.items():
-                if n not in new_names:
-                    delete("roster_members", mid)
-            for i, n in enumerate(new_names):
-                if n in old:
-                    update("roster_members", old[n], {"sort_no": i})
-                else:
-                    insert("roster_members", {"part": part, "grade": g2,
-                                              "class_no": None if no2 == NONE_CLASS else no2,
-                                              "name": n, "sort_no": i})
-            upsert("roster_classes", [{"part": part, "grade": g2, "class_no": no2,
-                                       "teachers": teachers_txt.strip() or None}],
-                   "part,grade,class_no")
-            st.session_state["flash"] = f"{part} {opt_label(sel2)} 명단을 저장했습니다."
-            st.rerun()
+    # 저장 후에도 선택한 반을 유지, '다음 반' 버튼으로 이동
+    sel_key = f"edit_sel_{part}"
+    if st.session_state.get(sel_key) not in options:
+        st.session_state[sel_key] = options[0]
+    st.selectbox("편집할 반", options, format_func=opt_label, key=sel_key)
+    sel2 = st.session_state[sel_key]
+    g2, no2 = sel2
+
+    cur = members_of(g2, no2)
+    mt = cls[(cls["grade"] == g2) & (cls["class_no"] == no2)]
+    cur_teacher = mt.iloc[0]["teachers"] if (not mt.empty and isinstance(mt.iloc[0]["teachers"], str)) else ""
+    cur_names = "\n".join(cur["name"].tolist())
+
+    # 반마다 입력칸 key가 달라서, 반을 바꾸면 그 반의 저장된 내용으로 새로 채워짐
+    fk = f"{part}_{g2}_{no2}"
+    with st.form(f"edit_form_{fk}"):
+        teachers_txt = st.text_area("담임샘 / 담당 (줄바꿈으로 구분)", value=cur_teacher,
+                                    height=80, key=f"t_{fk}")
+        names_txt = st.text_area("이름 목록", value=cur_names, height=180,
+                                 help="한 줄에 한 명, 또는 쉼표로 구분", key=f"n_{fk}")
+        b1, b2 = st.columns(2)
+        saved2 = b1.form_submit_button("저장", type="primary", use_container_width=True)
+        saved_next = b2.form_submit_button("저장 후 다음 반", use_container_width=True)
+
+    if saved2 or saved_next:
+        new_names = parse_names(names_txt)
+        old = {r["name"]: r["id"] for _, r in cur.iterrows()}
+        for n, mid in old.items():
+            if n not in new_names:
+                delete("roster_members", mid)
+        for i, n in enumerate(new_names):
+            if n in old:
+                update("roster_members", old[n], {"sort_no": i})
+            else:
+                insert("roster_members", {"part": part, "grade": g2,
+                                          "class_no": None if no2 == NONE_CLASS else no2,
+                                          "name": n, "sort_no": i})
+        upsert("roster_classes", [{"part": part, "grade": g2, "class_no": no2,
+                                   "teachers": teachers_txt.strip() or None}],
+               "part,grade,class_no")
+        st.session_state["flash"] = f"{part} {opt_label(sel2)} 저장 완료 ({len(new_names)}명)"
+        if saved_next:
+            i = options.index(sel2)
+            st.session_state[sel_key] = options[(i + 1) % len(options)]
+        st.rerun()
