@@ -590,12 +590,12 @@ grid_css = {
     ".ag-body-viewport": {"overflow-y": "hidden !important"},
 }
 
-ver = st.session_state.get("rg_ver", 0)
 resp = AgGrid(
     df, gridOptions=grid_options, allow_unsafe_jscode=True, custom_css=grid_css,
     update_mode=GridUpdateMode.VALUE_CHANGED,
+    server_sync_strategy="server_wins",
     height=head_h + row_h * (len(df) + 2) + 30, fit_columns_on_grid_load=True,
-    key=f"rg_grid_{part}_{sunday}_{ver}_{int(bool(mobile))}_{int(is_plan)}")
+    key=f"rg_grid_{part}_{sunday}_{int(bool(mobile))}_{int(is_plan)}")
 
 if is_plan:
     st.markdown(
@@ -723,13 +723,11 @@ def attend_dialog(member_id: str, name: str, d_iso: str, cur_present, cur_reason
         upsert("roster_attendance",
                [{"member_id": member_id, "sunday_date": d_iso, "present": choice == "출석",
                  "reason": reason if choice == "결석" else None}], "member_id,sunday_date")
-        st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
         st.rerun()
     if b2.button("기록 지우기", use_container_width=True, key=f"rgd_d_{member_id}"):
         if not is_admin:
             st.stop()
         delete_where("roster_attendance", member_id=member_id, sunday_date=d_iso)
-        st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
         st.rerun()
 
 
@@ -763,14 +761,12 @@ def plan_dialog(member_id: str, name: str, d_iso: str, cur_status, cur_reason: s
                  "reason": reason if choice == "불참" else None,
                  "updated_by": editor.strip() or None,
                  "updated_at": datetime.now(KST).isoformat()}], "member_id,sunday_date")
-        st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
         st.rerun()
     if b2.button("기록 지우기", use_container_width=True, key=f"pld_d_{member_id}"):
         if not plan_open:
             st.error("마감되어 수정할 수 없습니다. 관리자에게 요청해 주세요.")
             st.stop()
         delete_where("roster_plan", member_id=member_id, sunday_date=d_iso)
-        st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
         st.rerun()
 
 
@@ -844,6 +840,5 @@ if is_admin and not is_plan:
                     upsert("roster_members", reordered, "id")
             except Exception:
                 pass
-            st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
             st.session_state["flash"] = f"새신자 '{nm}'을(를) 새싹반에 추가했습니다. (출석 처리됨)"
             st.rerun()
