@@ -1,9 +1,10 @@
+import re
 from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, JsCode, GridUpdateMode
 from utils import db
-from utils.db import fetch, upsert
+from utils.db import fetch, upsert, delete
 
 st.title("🧮 출석부 (표 클릭)")
 
@@ -21,12 +22,18 @@ DEFAULT_CLASSES = {
     "1부": {"조이": 4, "해피": 4, "홀리": 4},
     "2부": {"조이": 5, "해피": 3, "홀리": 5},
 }
+STUDENT_GRADES = ["조이", "해피", "홀리", "새싹"]
+
+
+def tg(grade):          # 담임 구분 이름 (예: 담임조이)
+    return f"담임{grade}"
+
 
 if "flash" in st.session_state:
     st.success(st.session_state.pop("flash"))
 
 if is_admin:
-    st.caption("이름 칸을 누르면 출결 팝업이 열립니다.")
+    st.caption("이름 칸을 누르면 출결 팝업이 열립니다. (학생·담임·스탭 모두 동일)")
 else:
     st.caption("🔒 출결 처리는 관리자 로그인 후 가능합니다.")
 
@@ -68,15 +75,15 @@ if not vis.empty:
         visitors = int(vv.iloc[0]["count"])
 
 
-def teacher_of(grade, no):
+def members_of(grade, no):
+    return mem[(mem["grade"] == grade) & (mem["class_no"] == no)].sort_values("sort_no")
+
+
+def teacher_text(grade, no):
     m = cls[(cls["grade"] == grade) & (cls["class_no"] == no)]
     if m.empty or not isinstance(m.iloc[0]["teachers"], str):
         return ""
-    return m.iloc[0]["teachers"].replace("\n", " / ")
-
-
-def members_of(grade, no):
-    return mem[(mem["grade"] == grade) & (mem["class_no"] == no)].sort_values("sort_no")
+    return m.iloc[0]["teachers"]
 
 
 def class_numbers(grade):
@@ -86,8 +93,12 @@ def class_numbers(grade):
     return [n for n in nos if n > 0]
 
 
-counts = mem.groupby(["grade", "class_no"]).size() if not mem.empty else pd.Series(dtype=int)
+stu = mem[mem["grade"].isin(STUDENT_GRADES)]
+counts = stu.groupby(["grade", "class_no"]).size() if not stu.empty else pd.Series(dtype=int)
 NC = max(10, int(counts.max()) if len(counts) else 10)
+tm = mem[mem["grade"].str.startswith("담임")]
+tcounts = tm.groupby(["grade", "class_no"]).size() if not tm.empty else pd.Series(dtype=int)
+TN = max(2, int(tcounts.max()) if len(tcounts) else 2)
 
 
 def count_pr(df):
@@ -95,29 +106,36 @@ def count_pr(df):
 
 
 def make_row(**kw):
-    row = {"age": "", "no": "", "tch": "", "en": "", "pr": "", "bg": "#ffffff", "nbg": ""}
+    row = {"age": "", "no": "", "en": "", "pr": "", "bg": "#ffffff", "nbg": "", "pick": ""}
     for n in range(1, NC + 1):
         row[f"c{n}"] = ""
         row[f"i{n}"] = ""
         row[f"s{n}"] = ""
+    for n in range(1, TN + 1):
+        row[f"t{n}"] = ""
+        row[f"ti{n}"] = ""
+        row[f"ts{n}"] = ""
     row.update(kw)
     return row
+
+
+def flag_of(mid):
+    s = status.get(mid)
+    if s is None:
+        return ""
+    return "on" if s[0] else "off"
 
 
 def fill_names(row, kids_df, offset=0):
     sub = kids_df.iloc[offset:offset + NC]
     for n, (_, k) in enumerate(sub.iterrows(), start=1):
-        s = status.get(k["id"])
-        text = str(k["name"])
-        flag = ""
-        if s is not None:
-            if s[0]:
-                flag = "on"
-            else:
-                flag = "off"
-                if s[1]:
-                    text = f"{text} · {s[1]}"
-        row[f"c{n}"], row[f"i{n}"], row[f"s{n}"] = text, str(k["id"]), flag
+        row[f"c{n}"], row[f"i{n}"], row[f"s{n}"] = str(k["name"]), str(k["id"]), flag_of(k["id"])
+
+
+def fill_teachers(row, grade, no):
+    kids = members_of(tg(grade), no)
+    for n, (_, k) in enumerate(kids.head(TN).iterrows(), start=1):
+        row[f"t{n}"], row[f"ti{n}"], row[f"ts{n}"] = str(k["name"]), str(k["id"]), flag_of(k["id"])
 
 
 rows = []
@@ -132,9 +150,9 @@ for grade, age, color in GRADES:
         en, pr = len(kids), count_pr(kids)
         g_en += en
         g_pr += pr
-        r = make_row(age=f"{age} {grade}" if idx == 0 else "", no=str(no),
-                     tch=teacher_of(grade, no), en=en, pr=pr, bg=color)
+        r = make_row(age=f"{age} {grade}" if idx == 0 else "", no=str(no), en=en, pr=pr, bg=color)
         fill_names(r, kids)
+        fill_teachers(r, grade, no)
         rows.append(r)
         for extra in range(NC, len(kids), NC):
             r2 = make_row(bg=color)
@@ -146,45 +164,68 @@ for grade, age, color in GRADES:
 
 sp = members_of("새싹", NONE_CLASS)
 sp_pr = count_pr(sp)
-r = make_row(age="🌱 새싹반", tch=teacher_of("새싹", NONE_CLASS), en=len(sp), pr=sp_pr, bg="#e9f7ec")
+r = make_row(age="🌱새싹", en=len(sp), pr=sp_pr, bg="#e9f7ec")
 fill_names(r, sp)
+fill_teachers(r, "새싹", NONE_CLASS)
 rows.append(r)
 stu_en += len(sp)
 stu_pr += sp_pr
-rows.append(make_row(age="학생 합계", en=stu_en, pr=stu_pr, bg="#e9ecef", nbg="#e9ecef"))
+rows.append(make_row(age="학생합계", en=stu_en, pr=stu_pr, bg="#e9ecef", nbg="#e9ecef"))
 rows.append(make_row(age="방문자", pr=visitors, bg="#ffffff"))
 
 stf = members_of("스탭", NONE_CLASS)
 stf_pr = count_pr(stf)
-r = make_row(age="스탭(교사)", en=len(stf), pr=stf_pr, bg="#fafbfc")
-fill_names(r, stf)
-rows.append(r)
-rows.append(make_row(age="전체 합계", pr=stu_pr + stf_pr + visitors, bg="#e9ecef", nbg="#e9ecef"))
+for off in range(0, max(len(stf), 1), NC):
+    r = make_row(age="스탭" if off == 0 else "", en=len(stf) if off == 0 else "",
+                 pr=stf_pr if off == 0 else "", bg="#fafbfc")
+    fill_names(r, stf, off)
+    rows.append(r)
+
+tch_all = mem[mem["grade"].str.startswith("담임")]
+tch_en = len(tch_all) + len(stf)
+tch_pr = count_pr(tch_all) + stf_pr
+rows.append(make_row(age="교사합계", en=tch_en, pr=tch_pr, bg="#e9ecef", nbg="#e9ecef"))
+rows.append(make_row(age="전체합계", pr=stu_pr + tch_pr + visitors, bg="#e9ecef", nbg="#e9ecef"))
 
 df = pd.DataFrame(rows)
 df["pick"] = ""
 
 base_style = JsCode("function(p){return {backgroundColor: p.data.bg || '#fff', fontWeight: '700', "
-                    "textAlign: 'center', fontSize: '13px'};}")
+                    "textAlign: 'center', fontSize: '11px', padding: '0 1px'};}")
+
+
+def cell_style(flag_field, bold=False):
+    return JsCode(
+        "function(p){var s=p.data.%s; var b={textAlign:'center',fontSize:'11px',padding:'0 1px',"
+        "cursor:'pointer'%s};"
+        "if(s==='on'){b.backgroundColor='#b2f2bb';b.color='#1b6e2a';b.fontWeight='700';}"
+        "else if(s==='off'){b.backgroundColor='#ffe3e3';b.color='#c92a2a';b.fontWeight='700';}"
+        "else if(p.data.nbg){b.backgroundColor=p.data.nbg;}"
+        "else if(%s){b.backgroundColor=p.data.bg;}"
+        "return b;}" % (flag_field, ",fontWeight:'700'" if bold else "", "true" if bold else "false"))
+
+
 col_defs = [
-    {"field": "age", "headerName": "나이", "width": 90, "cellStyle": base_style, "sortable": False},
-    {"field": "no", "headerName": "반", "width": 60, "cellStyle": base_style, "sortable": False},
-    {"field": "tch", "headerName": "담임샘", "width": 110, "cellStyle": base_style, "sortable": False},
+    {"field": "age", "headerName": "나이", "width": 54, "minWidth": 40,
+     "cellStyle": base_style, "sortable": False},
+    {"field": "no", "headerName": "반", "width": 34, "minWidth": 26,
+     "cellStyle": base_style, "sortable": False},
 ]
+for n in range(1, TN + 1):
+    col_defs.append({"field": f"t{n}", "headerName": "담임샘" if n == 1 else "", "width": 52,
+                     "minWidth": 40, "cellStyle": cell_style(f"ts{n}", bold=True), "sortable": False})
+    col_defs.append({"field": f"ti{n}", "hide": True})
+    col_defs.append({"field": f"ts{n}", "hide": True})
 for n in range(1, NC + 1):
-    style = JsCode(
-        "function(p){var s=p.data.s%d; var base={textAlign:'center',fontSize:'13px',cursor:'pointer'};"
-        "if(s==='on'){base.backgroundColor='#b2f2bb';base.color='#1b6e2a';base.fontWeight='700';}"
-        "else if(s==='off'){base.backgroundColor='#ffe3e3';base.color='#c92a2a';}"
-        "else if(p.data.nbg){base.backgroundColor=p.data.nbg;}"
-        "return base;}" % n)
-    col_defs.append({"field": f"c{n}", "headerName": str(n), "width": 92,
-                     "cellStyle": style, "sortable": False})
+    col_defs.append({"field": f"c{n}", "headerName": str(n), "width": 50, "minWidth": 32,
+                     "cellStyle": cell_style(f"s{n}"), "sortable": False})
     col_defs.append({"field": f"i{n}", "hide": True})
     col_defs.append({"field": f"s{n}", "hide": True})
 col_defs += [
-    {"field": "en", "headerName": "재적", "width": 70, "cellStyle": base_style, "sortable": False},
-    {"field": "pr", "headerName": "출석", "width": 70, "cellStyle": base_style, "sortable": False},
+    {"field": "en", "headerName": "재적", "width": 40, "minWidth": 30,
+     "cellStyle": base_style, "sortable": False},
+    {"field": "pr", "headerName": "출석", "width": 40, "minWidth": 30,
+     "cellStyle": base_style, "sortable": False},
     {"field": "bg", "hide": True},
     {"field": "nbg", "hide": True},
     {"field": "pick", "hide": True},
@@ -192,19 +233,17 @@ col_defs += [
 
 grid_options = {
     "columnDefs": col_defs,
-    "rowHeight": 36,
-    "headerHeight": 36,
+    "rowHeight": 28,
+    "headerHeight": 28,
     "suppressMovableColumns": True,
     "suppressCellFocus": True,
     "defaultColDef": {"resizable": False},
     "rowSelection": "single",
     "suppressRowClickSelection": False,
     "onCellClicked": JsCode(
-        "function(e){var f=e.colDef.field||'';"
-        "if(f.charAt(0)==='c' && /^[0-9]+$/.test(f.substring(1))){"
-        "var id=e.data['i'+f.substring(1)];"
-        "e.node.setDataValue('pick', id ? (id+'|'+e.value) : '');"
-        "}}"),
+        "function(e){var f=e.colDef.field||'';var m=/^(c|t)([0-9]+)$/.exec(f);if(!m)return;"
+        "var id=e.data[(m[1]==='c'?'i':'ti')+m[2]];"
+        "e.node.setDataValue('pick', id ? (id+'|'+e.value+'|'+Date.now()) : '');}"),
 }
 
 ver = st.session_state.get("rg_ver", 0)
@@ -214,8 +253,16 @@ st.markdown(f"**{sunday.year}년 유치{p}부 {sunday.month}월 {sunday.day}일 
 resp = AgGrid(
     df, gridOptions=grid_options, allow_unsafe_jscode=True,
     update_mode=GridUpdateMode.SELECTION_CHANGED | GridUpdateMode.VALUE_CHANGED,
-    height=min(900, 40 + 36 * len(df) + 6), fit_columns_on_grid_load=False,
+    height=28 + 28 * len(df) + 6, fit_columns_on_grid_load=True,
     key=f"rg_grid_{part}_{sunday}_{ver}")
+
+# 결석 사유 요약 (표 칸이 좁아 사유는 여기에 모아서 표시)
+name_of = {r["id"]: str(r["name"]) for _, r in mem.iterrows()}
+absent = [f"{name_of[m]}({s[1] or '사유 없음'})" for m, s in status.items()
+          if (not s[0]) and m in name_of]
+if absent:
+    st.caption("❌ 결석: " + ", ".join(absent))
+st.caption("초록 = 출석 · 빨강 = 결석 · 흰색 = 미확인")
 
 
 @st.dialog("출결 처리")
@@ -256,9 +303,72 @@ if is_admin:
             picked = first.get("pick") if hasattr(first, "get") else None
     except Exception:
         picked = None
-    if picked and "|" in str(picked):
-        mid, label = str(picked).split("|", 1)
-        st.session_state["rg_ver"] = ver + 1
-        s = status.get(mid)
-        attend_dialog(mid, label.split(" · ")[0], sunday.isoformat(),
-                      (s[0] if s else None), (s[1] if s else ""))
+    if picked and str(picked).count("|") >= 2:
+        mid, label, stamp = str(picked).split("|", 2)
+        if stamp != st.session_state.get("rg_last"):      # 같은 클릭은 한 번만 처리
+            st.session_state["rg_last"] = stamp
+            s = status.get(mid)
+            attend_dialog(mid, label, sunday.isoformat(),
+                          (s[0] if s else None), (s[1] if s else ""))
+
+# ================================================================ 담임 명단 등록 (관리자)
+if is_admin:
+    with st.expander("👩‍🏫 담임 명단 등록 (출결 대상)", expanded=st.session_state.get("tch_open", False)):
+        all_classes = [(g, n) for g, _, _ in GRADES for n in class_numbers(g)] + [("새싹", NONE_CLASS)]
+
+        st.caption("처음 한 번, 지금 입력돼 있는 담임 이름을 출결 대상으로 가져옵니다. "
+                   f"({part} 기준, 이미 등록된 이름은 건너뜁니다.)")
+        if st.button("기존 담임 이름 가져오기", key=f"imp_{part}"):
+            new_rows, added = [], 0
+            for g, n in all_classes:
+                have = set(members_of(tg(g), n)["name"])
+                order = len(have)
+                for nm in re.split(r"[\n/,]", teacher_text(g, n)):
+                    nm = nm.strip()
+                    if nm and nm not in have:
+                        have.add(nm)
+                        new_rows.append({"part": part, "grade": tg(g),
+                                         "class_no": None if n == NONE_CLASS else n,
+                                         "name": nm, "sort_no": order})
+                        order += 1
+                        added += 1
+            if new_rows:
+                db.get_client().table("roster_members").insert(new_rows).execute()
+                db._fetch_cached.clear()
+            st.session_state["tch_open"] = True
+            st.session_state["flash"] = f"담임 {added}명을 출결 대상으로 등록했습니다."
+            st.rerun()
+
+        st.divider()
+        names_of = {a: f"{b} {a}" for a, b, _ in GRADES}
+        sel_t = st.selectbox("반 선택", all_classes, key=f"tsel_{part}",
+                             format_func=lambda o: "🌱 새싹반" if o[0] == "새싹"
+                             else f"{names_of[o[0]]} {o[1]}반")
+        g_, n_ = sel_t
+        cur = members_of(tg(g_), n_)
+        fk = f"{part}_{g_}_{n_}"
+        with st.form(f"tch_form_{fk}"):
+            txt = st.text_area("담임샘 이름 (줄바꿈 또는 쉼표로 구분)",
+                               value="\n".join(cur["name"].tolist()), height=90, key=f"tt_{fk}")
+            saved = st.form_submit_button("저장", type="primary", use_container_width=True)
+        if saved:
+            names = []
+            for nm in re.split(r"[\n,]", txt):
+                nm = nm.strip()
+                if nm and nm not in names:
+                    names.append(nm)
+            old = {r["name"]: r["id"] for _, r in cur.iterrows()}
+            for nm, mid in old.items():
+                if nm not in names:
+                    delete("roster_members", mid)
+            new_rows = [{"part": part, "grade": tg(g_), "class_no": None if n_ == NONE_CLASS else n_,
+                         "name": nm, "sort_no": i} for i, nm in enumerate(names) if nm not in old]
+            if new_rows:
+                db.get_client().table("roster_members").insert(new_rows).execute()
+                db._fetch_cached.clear()
+            upsert("roster_classes", [{"part": part, "grade": g_, "class_no": n_,
+                                       "teachers": "\n".join(names) or None}],
+                   "part,grade,class_no")
+            st.session_state["tch_open"] = True
+            st.session_state["flash"] = f"{part} 담임 명단을 저장했습니다. ({len(names)}명)"
+            st.rerun()
