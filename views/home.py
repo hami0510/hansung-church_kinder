@@ -1,9 +1,9 @@
 import html
-from datetime import date, timedelta
+from datetime import date
 import pandas as pd
 import streamlit as st
 from utils.db import fetch
-from utils.ui import hero, stats_line
+from utils.ui import hero
 
 try:
     from streamlit_calendar import calendar as st_calendar
@@ -17,8 +17,6 @@ except Exception:
 
 SHOW_HOLIDAYS = True
 RENAME = {"기독탄신일": "성탄절", "신정연휴": "신정"}
-# 홈에 보여줄 공지 개수 (나머지는 공지사항 메뉴에서)
-NOTICE_SHOW = 5
 
 hero()
 
@@ -48,15 +46,8 @@ if SHOW_HOLIDAYS and _holidays is not None:
     except Exception:
         holiday_map = {}
 
-# ---------- 현황 한 줄 ----------
-week_end = today + timedelta(days=7)
-n_events = 0
-if not ev.empty:
-    n_events = int(((ev["event_date"] >= today) & (ev["event_date"] <= week_end)).sum())
-stats_line([("📅", "이번 주 일정", f"{n_events}건")])
 
-
-# ---------- 공지 (제목만, 왼쪽 정렬 → 누르면 팝업) ----------
+# ---------- 공지: 상단 고정 1건 + 최신 2건 (최대 3건) ----------
 @st.dialog("📢 공지")
 def show_notice(title: str, when: str, content: str):
     st.markdown(f"### {title}")
@@ -72,28 +63,31 @@ except Exception:
 
 if not nt.empty:
     nt["_pin"] = nt["pinned"].apply(lambda v: str(v).lower() == "true")
-    nt = nt.sort_values(["_pin", "created_at"], ascending=[False, False])
-    st.subheader("📢 공지")
+    nt = nt.sort_values("created_at", ascending=False)
+    pinned = nt[nt["_pin"]].head(1)
+    rest = nt[~nt.index.isin(pinned.index)].head(3 - len(pinned))
+    show = pd.concat([pinned, rest])
+
     st.markdown("""
     <style>
-    .nrow {display: flex; align-items: center; gap: .6rem; padding: .55rem .35rem;
+    .nlabel {font-size: .85rem; font-weight: 700; color: #6b7c93; margin: .2rem 0 .1rem;}
+    .nrow {display: flex; align-items: center; gap: .6rem; padding: .6rem .35rem;
            border-bottom: 1px solid rgba(128,128,128,.2); line-height: 1.35;}
     .nrow .nt {flex: 1; min-width: 0; text-align: left; font-weight: 700; color: #1b3a5c;
                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
-    .nrow .nd {flex: 0 0 auto; font-size: .82rem; color: #8a97a8;}
-    .nwrap {position: relative;}
+    .nrow .nd {flex: 0 0 auto; font-size: .8rem; color: #8a97a8;}
     .nwrap:hover .nrow {background: rgba(74,159,224,.10); border-radius: 8px;}
     .st-key-nlist [data-testid="stVerticalBlock"] {gap: 0;}
     .st-key-nlist [data-testid="stElementContainer"] {margin: 0;}
-    .st-key-nlist .nwrap + [data-testid="stElementContainer"],
     .st-key-nlist [data-testid="stElementContainer"]:has(.stButton) {
-      position: relative; margin-top: -2.55rem; height: 2.55rem; z-index: 2;}
-    .st-key-nlist .stButton, .st-key-nlist .stButton > button {width: 100%; height: 2.55rem;}
+      position: relative; margin-top: -2.6rem; height: 2.6rem; z-index: 2;}
+    .st-key-nlist .stButton, .st-key-nlist .stButton > button {width: 100%; height: 2.6rem;}
     .st-key-nlist .stButton > button {opacity: 0; cursor: pointer; border: none; padding: 0;}
     </style>
+    <div class='nlabel'>📢 공지</div>
     """, unsafe_allow_html=True)
     with st.container(key="nlist"):
-        for _, r in nt.head(NOTICE_SHOW).iterrows():
+        for _, r in show.iterrows():
             try:
                 when = pd.to_datetime(r["created_at"], utc=True).tz_convert("Asia/Seoul")
                 when_s = f"{when:%Y.%m.%d}"
@@ -108,8 +102,6 @@ if not nt.empty:
                 unsafe_allow_html=True)
             if st.button(" ", key=f"notice_{r['id']}", use_container_width=True):
                 show_notice(str(r["title"]), when_s, content)
-    if len(nt) > NOTICE_SHOW:
-        st.caption(f"공지 {len(nt)}건 중 {NOTICE_SHOW}건만 표시됩니다. 전체는 왼쪽 '공지사항' 메뉴에서 볼 수 있습니다.")
 
 # ---------- 달력용 데이터 ----------
 cal_events = []
@@ -175,8 +167,6 @@ def show_day(iso: str):
 
 
 # ---------- 월간 달력 ----------
-st.subheader("🗓️ 월간 일정")
-
 if st_calendar is None:
     st.warning("달력을 불러오지 못했습니다. requirements.txt에 streamlit-calendar가 있는지 확인해 주세요.")
 else:
@@ -185,9 +175,9 @@ else:
         "initialDate": today.isoformat(),
         "locale": "ko",
         "firstDay": 0,
-        "height": 650,
+        "height": 560,
         "fixedWeekCount": False,
-        "dayMaxEvents": 3,
+        "dayMaxEvents": 2,
         "moreLinkClick": "none",
         "moreLinkText": "개 더보기",
         "headerToolbar": {"left": "prev,next today", "center": "title", "right": ""},
@@ -195,7 +185,8 @@ else:
         "eventTimeFormat": {"hour": "2-digit", "minute": "2-digit", "hour12": False},
     }
     custom_css = """
-        .fc-toolbar-title {font-size: 1.3rem !important; font-weight: 700;}
+        .fc-toolbar {margin-bottom: .6rem !important;}
+        .fc-toolbar-title {font-size: 1.2rem !important; font-weight: 700;}
         .fc-col-header-cell {background: #cfe9fc;}
         .fc-col-header-cell-cushion {color: #1b3a5c; text-decoration: none;}
         .fc-day-sun .fc-daygrid-day-number, .fc-day-sun .fc-col-header-cell-cushion {color: #d6336c !important;}
@@ -204,14 +195,17 @@ else:
         .fc-daygrid-day:has(.kholiday) .fc-daygrid-day-number {color: #e03131 !important;}
         .fc-day-today {background: #fff3bf !important;}
         .fc-daygrid-day-frame {cursor: default;}
-        .fc-event {cursor: pointer; border-radius: 8px; padding: 1px 4px; font-size: 0.8rem;}
+        .fc-event {cursor: pointer; border-radius: 8px; padding: 1px 4px; font-size: 0.78rem;}
         .fc-event.kholiday {cursor: default; font-weight: 700;}
         .fc-event-time {font-weight: 400; margin-right: 3px;}
         .fc-event-title {overflow: hidden; text-overflow: ellipsis;}
         .fc-more-link {pointer-events: none; color: #868e96;}
         .fc-button-primary {background: #4a9fe0 !important; border-color: #4a9fe0 !important;}
         @media (max-width: 640px) {
-          .fc-event {padding: 3px 4px; font-size: 0.78rem; margin-bottom: 2px;}
+          .fc-event {padding: 2px 3px; font-size: 0.7rem;}
+          .fc-event-time {display: none;}
+          .fc-daygrid-day-number {font-size: 0.75rem; padding: 2px 3px;}
+          .fc-toolbar-title {font-size: 1.05rem !important;}
         }
     """
     state = st_calendar(events=cal_events, options=options, custom_css=custom_css,
