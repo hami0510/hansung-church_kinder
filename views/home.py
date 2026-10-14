@@ -18,6 +18,31 @@ except Exception:
 SHOW_HOLIDAYS = True
 RENAME = {"기독탄신일": "성탄절", "신정연휴": "신정"}
 
+# 이 화면 전용 여백 조정
+st.markdown("""
+<style>
+.hero {margin-bottom: 1.4rem !important;}
+.hero-sub {opacity: .75;}
+.hsec {font-size: .85rem; font-weight: 700; color: #6b7c93; margin: 0 0 .5rem .2rem;}
+.nbox {border: 1px solid rgba(128,128,128,.22); border-radius: 16px; padding: .2rem .6rem;
+       background: rgba(120,180,240,.05); margin-bottom: 1.6rem;}
+.nrow {display: flex; align-items: center; gap: .6rem; padding: .85rem .3rem; line-height: 1.4;}
+.nrow .nt {flex: 1; min-width: 0; text-align: left; font-weight: 400; color: #1b3a5c;
+           overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.nrow.pin .nt {font-weight: 700;}
+.nrow .nd {flex: 0 0 auto; font-size: .78rem; color: #9aa6b5;}
+.nwrap {border-bottom: 1px solid rgba(128,128,128,.15);}
+.nwrap:last-child {border-bottom: none;}
+.nwrap:hover .nrow {background: rgba(74,159,224,.08); border-radius: 10px;}
+.st-key-nlist [data-testid="stVerticalBlock"] {gap: 0;}
+.st-key-nlist [data-testid="stElementContainer"] {margin: 0;}
+.st-key-nlist [data-testid="stElementContainer"]:has(.stButton) {
+  position: relative; margin-top: -3.1rem; height: 3.1rem; z-index: 2;}
+.st-key-nlist .stButton, .st-key-nlist .stButton > button {width: 100%; height: 3.1rem;}
+.st-key-nlist .stButton > button {opacity: 0; cursor: pointer; border: none; padding: 0;}
+</style>
+""", unsafe_allow_html=True)
+
 hero()
 
 today = date.today()
@@ -68,25 +93,9 @@ if not nt.empty:
     rest = nt[~nt.index.isin(pinned.index)].head(3 - len(pinned))
     show = pd.concat([pinned, rest])
 
-    st.markdown("""
-    <style>
-    .nlabel {font-size: .85rem; font-weight: 700; color: #6b7c93; margin: .2rem 0 .1rem;}
-    .nrow {display: flex; align-items: center; gap: .6rem; padding: .6rem .35rem;
-           border-bottom: 1px solid rgba(128,128,128,.2); line-height: 1.35;}
-    .nrow .nt {flex: 1; min-width: 0; text-align: left; font-weight: 700; color: #1b3a5c;
-               overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
-    .nrow .nd {flex: 0 0 auto; font-size: .8rem; color: #8a97a8;}
-    .nwrap:hover .nrow {background: rgba(74,159,224,.10); border-radius: 8px;}
-    .st-key-nlist [data-testid="stVerticalBlock"] {gap: 0;}
-    .st-key-nlist [data-testid="stElementContainer"] {margin: 0;}
-    .st-key-nlist [data-testid="stElementContainer"]:has(.stButton) {
-      position: relative; margin-top: -2.6rem; height: 2.6rem; z-index: 2;}
-    .st-key-nlist .stButton, .st-key-nlist .stButton > button {width: 100%; height: 2.6rem;}
-    .st-key-nlist .stButton > button {opacity: 0; cursor: pointer; border: none; padding: 0;}
-    </style>
-    <div class='nlabel'>📢 공지</div>
-    """, unsafe_allow_html=True)
+    st.markdown("<div class='hsec'>📢 공지</div>", unsafe_allow_html=True)
     with st.container(key="nlist"):
+        st.markdown("<div class='nbox'>", unsafe_allow_html=True)
         for _, r in show.iterrows():
             try:
                 when = pd.to_datetime(r["created_at"], utc=True).tz_convert("Asia/Seoul")
@@ -96,12 +105,14 @@ if not nt.empty:
             mark = "📌" if r["_pin"] else "📢"
             content = r["content"] if isinstance(r.get("content"), str) else ""
             st.markdown(
-                f"<div class='nwrap'><div class='nrow'>"
+                f"<div class='nwrap'><div class='nrow{' pin' if r['_pin'] else ''}'>"
                 f"<span class='nt'>{mark} {html.escape(str(r['title']))}</span>"
                 f"<span class='nd'>{html.escape(when_s)}</span></div></div>",
                 unsafe_allow_html=True)
             if st.button(" ", key=f"notice_{r['id']}", use_container_width=True):
                 show_notice(str(r["title"]), when_s, content)
+        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:.4rem'></div>", unsafe_allow_html=True)
 
 # ---------- 달력용 데이터 ----------
 cal_events = []
@@ -117,18 +128,18 @@ if not ev.empty:
         cal_events.append({
             "id": str(r["id"]), "title": label, "start": start,
             "allDay": not bool(r["time_str"]),
-            "backgroundColor": "#dff0ff", "borderColor": "#bfe0fa", "textColor": "#1b3a5c",
+            "backgroundColor": "#e8f3ff", "borderColor": "#e8f3ff", "textColor": "#1b3a5c",
         })
 
 for iso, name in holiday_map.items():
     cal_events.append({
         "id": f"hol_{iso}", "title": name, "start": iso, "allDay": True,
-        "backgroundColor": "#ffe3e3", "borderColor": "#ffc9c9", "textColor": "#c92a2a",
+        "backgroundColor": "#ffe9e9", "borderColor": "#ffe9e9", "textColor": "#c92a2a",
         "classNames": ["kholiday"],
     })
     cal_events.append({
         "id": f"holbg_{iso}", "start": iso, "allDay": True, "display": "background",
-        "backgroundColor": "#fff0f0",
+        "backgroundColor": "#fff6f6",
     })
 
 
@@ -175,7 +186,7 @@ else:
         "initialDate": today.isoformat(),
         "locale": "ko",
         "firstDay": 0,
-        "height": 560,
+        "height": 620,
         "fixedWeekCount": False,
         "dayMaxEvents": 2,
         "moreLinkClick": "none",
@@ -185,26 +196,29 @@ else:
         "eventTimeFormat": {"hour": "2-digit", "minute": "2-digit", "hour12": False},
     }
     custom_css = """
-        .fc-toolbar {margin-bottom: .6rem !important;}
+        .fc {--fc-border-color: #e6edf5;}
+        .fc-toolbar {margin-bottom: .9rem !important;}
         .fc-toolbar-title {font-size: 1.2rem !important; font-weight: 700;}
-        .fc-col-header-cell {background: #cfe9fc;}
-        .fc-col-header-cell-cushion {color: #1b3a5c; text-decoration: none;}
+        .fc-col-header-cell {background: #f1f7fd;}
+        .fc-col-header-cell-cushion {color: #1b3a5c; text-decoration: none; padding: 6px 0;}
         .fc-day-sun .fc-daygrid-day-number, .fc-day-sun .fc-col-header-cell-cushion {color: #d6336c !important;}
         .fc-day-sat .fc-daygrid-day-number, .fc-day-sat .fc-col-header-cell-cushion {color: #1c64f2 !important;}
-        .fc-daygrid-day-number {text-decoration: none; font-weight: 700; pointer-events: none;}
+        .fc-daygrid-day-number {text-decoration: none; font-weight: 700; pointer-events: none; padding: 6px 8px;}
         .fc-daygrid-day:has(.kholiday) .fc-daygrid-day-number {color: #e03131 !important;}
-        .fc-day-today {background: #fff3bf !important;}
+        .fc-day-today {background: #fff6d6 !important;}
         .fc-daygrid-day-frame {cursor: default;}
-        .fc-event {cursor: pointer; border-radius: 8px; padding: 1px 4px; font-size: 0.78rem;}
+        .fc-daygrid-event-harness {margin: 0 4px 3px 4px !important;}
+        .fc-event {cursor: pointer; border-radius: 8px; padding: 2px 5px; font-size: 0.78rem;}
         .fc-event.kholiday {cursor: default; font-weight: 700;}
         .fc-event-time {font-weight: 400; margin-right: 3px;}
         .fc-event-title {overflow: hidden; text-overflow: ellipsis;}
-        .fc-more-link {pointer-events: none; color: #868e96;}
+        .fc-more-link {pointer-events: none; color: #9aa6b5; margin-left: 6px;}
         .fc-button-primary {background: #4a9fe0 !important; border-color: #4a9fe0 !important;}
         @media (max-width: 640px) {
           .fc-event {padding: 2px 3px; font-size: 0.7rem;}
           .fc-event-time {display: none;}
-          .fc-daygrid-day-number {font-size: 0.75rem; padding: 2px 3px;}
+          .fc-daygrid-day-number {font-size: 0.75rem; padding: 3px 4px;}
+          .fc-daygrid-event-harness {margin: 0 2px 2px 2px !important;}
           .fc-toolbar-title {font-size: 1.05rem !important;}
         }
     """
