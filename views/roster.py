@@ -31,7 +31,7 @@ if not (_GRID_DIR / "index.html").exists():
     found = sorted(p.name for p in _GRID_DIR.glob("*")) if _GRID_DIR.exists() else "폴더 없음"
     st.error(f"표 파일(index.html)을 찾지 못했습니다. 위치: {_GRID_DIR} / 폴더 안 파일: {found}")
     st.stop()
-_GRID = components.declare_component("roster_grid", path=str(_GRID_DIR))
+_GRID = components.declare_component("roster_grid_v2", path=str(_GRID_DIR))
 
 
 def parse_names(text: str):
