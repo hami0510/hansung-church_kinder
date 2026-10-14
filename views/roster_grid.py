@@ -3,9 +3,9 @@ import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, JsCode, GridUpdateMode
 from utils import db
-from utils.db import fetch, upsert
+from utils.db import fetch, insert, update, delete, upsert
 
-st.title("🧮 출석부 (표 클릭)")
+st.title("📋 주일 출석부")
 
 is_admin = st.session_state.get("role") == "admin"
 
@@ -29,19 +29,22 @@ def tg(grade):          # 담임 구분 이름 (예: 담임조이)
     return f"담임{grade}"
 
 
+def parse_names(text: str):
+    out = []
+    for line in (text or "").replace(",", "\n").replace("，", "\n").splitlines():
+        n = line.strip()
+        if n and n not in out:
+            out.append(n)
+    return out
+
+
 if "flash" in st.session_state:
     st.success(st.session_state.pop("flash"))
-
-if is_admin:
-    st.caption("이름 칸을 누르면 출결 팝업이 열립니다. (학생·담임·스탭 모두 동일)")
-else:
-    st.caption("🔒 출결 처리는 관리자 로그인 후 가능합니다.")
 
 c1, c2 = st.columns(2)
 part = c1.radio("부", PARTS, horizontal=True, key="rg_part")
 upcoming = date.today() + timedelta(days=(6 - date.today().weekday()) % 7)
 sunday = c2.date_input("주일 날짜", value=upcoming, key="rg_date")
-mobile = st.toggle("📱 모바일 보기 (휴대폰에서는 켜 주세요)", key="rg_mobile")
 
 mem = fetch("roster_members", "sort_no")
 cls = fetch("roster_classes")
@@ -80,12 +83,108 @@ def members_of(grade, no):
     return mem[(mem["grade"] == grade) & (mem["class_no"] == no)].sort_values("sort_no")
 
 
+def teacher_text(grade, no):
+    m = cls[(cls["grade"] == grade) & (cls["class_no"] == no)]
+    if m.empty or not isinstance(m.iloc[0]["teachers"], str):
+        return ""
+    return m.iloc[0]["teachers"]
+
+
 def class_numbers(grade):
     g = mem[mem["grade"] == grade]
     base = set(range(1, DEFAULT_CLASSES.get(part, {}).get(grade, 0) + 1))
     nos = sorted(base | set(g["class_no"]) | set(cls[cls["grade"] == grade]["class_no"]))
     return [n for n in nos if n > 0]
 
+
+# ---------------------------------------------------------------- 화면 선택
+VIEWS = ["출석부"] + (["명단 관리"] if is_admin else [])
+if st.session_state.get("rg_view") not in VIEWS:
+    st.session_state["rg_view"] = VIEWS[0]
+view = st.segmented_control("화면", VIEWS, key="rg_view", label_visibility="collapsed")
+view = view or VIEWS[0]
+
+# ================================================================ 명단 관리 (관리자)
+if view == "명단 관리" and is_admin:
+    st.caption("담임샘과 학생 이름을 쉼표 또는 줄바꿈으로 구분해 입력하세요. "
+               "저장하면 해당 반이 **입력한 내용으로 바뀝니다.** "
+               "(빠진 이름은 삭제되고, 그 이름의 출결 기록도 함께 지워집니다.)")
+    names_of = {a: f"{b} {a}" for a, b, _ in GRADES}
+    max_no = {g_: max(DEFAULT_CLASSES.get(part, {}).get(g_, 0), 5) for g_, _, _ in GRADES}
+    options = ([(g_, n_) for g_, _, _ in GRADES for n_ in range(1, max_no[g_] + 1)]
+               + [("새싹", NONE_CLASS), ("스탭", NONE_CLASS)])
+
+    def opt_label(o):
+        g_, n_ = o
+        if g_ == "새싹":
+            return "🌱 새싹반"
+        if g_ == "스탭":
+            return "🧑‍🏫 스탭(교사)"
+        return f"{names_of[g_]} {n_}반"
+
+    sel_key = f"ed_sel_{part}"
+    pend_key = f"ed_next_{part}"
+    if pend_key in st.session_state:
+        st.session_state[sel_key] = st.session_state.pop(pend_key)
+    if st.session_state.get(sel_key) not in options:
+        st.session_state[sel_key] = options[0]
+    st.selectbox("편집할 반", options, format_func=opt_label, key=sel_key)
+    g2, no2 = st.session_state[sel_key]
+    has_teacher = g2 != "스탭"
+
+    cur_stu = members_of(g2, no2)
+    cur_tch = members_of(tg(g2), no2) if has_teacher else mem.iloc[0:0]
+    tch_default = "\n".join(cur_tch["name"].tolist()) if not cur_tch.empty else (
+        teacher_text(g2, no2) if has_teacher else "")
+
+    fk = f"{part}_{g2}_{no2}"
+    with st.form(f"ed_form_{fk}"):
+        tch_txt = ""
+        if has_teacher:
+            tch_txt = st.text_area("담임샘 (출결 대상)", value=tch_default, height=80, key=f"et_{fk}")
+        stu_txt = st.text_area("스탭 이름" if g2 == "스탭" else "학생 이름",
+                               value="\n".join(cur_stu["name"].tolist()), height=180, key=f"es_{fk}")
+        b1, b2 = st.columns(2)
+        saved = b1.form_submit_button("저장", type="primary", use_container_width=True)
+        saved_next = b2.form_submit_button("저장 후 다음 반", use_container_width=True)
+
+    if saved or saved_next:
+        cls_no = None if no2 == NONE_CLASS else no2
+
+        def sync(grade_name, cur_df, new_names):
+            old = {r["name"]: r["id"] for _, r in cur_df.iterrows()}
+            for nm, mid in old.items():
+                if nm not in new_names:
+                    delete("roster_members", mid)
+            for i, nm in enumerate(new_names):
+                if nm in old:
+                    update("roster_members", old[nm], {"sort_no": i})
+                else:
+                    insert("roster_members", {"part": part, "grade": grade_name,
+                                              "class_no": cls_no, "name": nm, "sort_no": i})
+
+        stu_names = parse_names(stu_txt)
+        sync(g2, cur_stu, stu_names)
+        if has_teacher:
+            t_names = parse_names(tch_txt)
+            sync(tg(g2), cur_tch, t_names)
+            upsert("roster_classes", [{"part": part, "grade": g2, "class_no": no2,
+                                       "teachers": "\n".join(t_names) or None}],
+                   "part,grade,class_no")
+        st.session_state["flash"] = f"{part} {opt_label((g2, no2))} 저장 완료"
+        if saved_next:
+            i = options.index((g2, no2))
+            st.session_state[pend_key] = options[(i + 1) % len(options)]
+        st.rerun()
+    st.stop()
+
+# ================================================================ 출석부 (표 클릭)
+if is_admin:
+    st.caption("이름 칸을 누르면 출결 팝업이 열립니다. (학생·담임·스탭 모두 동일)")
+else:
+    st.caption("🔒 출결 처리는 관리자 로그인 후 가능합니다.")
+
+mobile = st.toggle("📱 모바일 보기 (휴대폰에서는 켜 주세요)", key="rg_mobile")
 
 stu = mem[mem["grade"].isin(STUDENT_GRADES)]
 counts = stu.groupby(["grade", "class_no"]).size() if not stu.empty else pd.Series(dtype=int)
@@ -135,7 +234,6 @@ def fill_teachers(row, grade, no):
 
 
 def chunks(df):
-    """학생 목록을 줄 단위(NC명)로 나눔 (최소 1줄)"""
     total = max(len(df), 1)
     return list(range(0, total, NC))
 
@@ -215,7 +313,8 @@ else:
                 r = make_row(lab="", lbg=color, cnt=f"{pr}/{en}" if k == 0 else "")
                 fill_names(r, kids, off)
                 rows.append(r)
-        rows.append(make_row(lab="소계", lbg="#eef1f5", bg="#eef1f5", nbg="#eef1f5", cnt=f"{g_pr}/{g_en}"))
+        rows.append(make_row(lab="소계", lbg="#eef1f5", bg="#eef1f5", nbg="#eef1f5",
+                             cnt=f"{g_pr}/{g_en}"))
         stu_en += g_en
         stu_pr += g_pr
 
@@ -228,7 +327,8 @@ else:
         rows.append(r)
     stu_en += len(sp)
     stu_pr += sp_pr
-    rows.append(make_row(lab="학생합계", lbg="#e9ecef", bg="#e9ecef", nbg="#e9ecef", cnt=f"{stu_pr}/{stu_en}"))
+    rows.append(make_row(lab="학생합계", lbg="#e9ecef", bg="#e9ecef", nbg="#e9ecef",
+                         cnt=f"{stu_pr}/{stu_en}"))
     rows.append(make_row(lab="방문자", lbg="#ffffff", cnt=str(visitors)))
 
     stf = members_of("스탭", NONE_CLASS)
@@ -242,7 +342,8 @@ else:
     tch_all = mem[mem["grade"].str.startswith("담임")]
     tch_en = len(tch_all) + len(stf)
     tch_pr = count_pr(tch_all) + stf_pr
-    rows.append(make_row(lab="교사합계", lbg="#e9ecef", bg="#e9ecef", nbg="#e9ecef", cnt=f"{tch_pr}/{tch_en}"))
+    rows.append(make_row(lab="교사합계", lbg="#e9ecef", bg="#e9ecef", nbg="#e9ecef",
+                         cnt=f"{tch_pr}/{tch_en}"))
     rows.append(make_row(lab="전체합계", lbg="#e9ecef", bg="#e9ecef", nbg="#e9ecef",
                          cnt=str(stu_pr + tch_pr + visitors)))
 
@@ -288,7 +389,8 @@ else:
     ]
     for n in range(1, TN + 1):
         col_defs.append({"field": f"t{n}", "headerName": "담임샘" if n == 1 else "", "width": 52,
-                         "minWidth": 40, "cellStyle": cell_style(f"ts{n}", bold=True), "sortable": False})
+                         "minWidth": 40, "cellStyle": cell_style(f"ts{n}", bold=True),
+                         "sortable": False})
         col_defs.append({"field": f"ti{n}", "hide": True})
         col_defs.append({"field": f"ts{n}", "hide": True})
     for n in range(1, NC + 1):
@@ -337,7 +439,6 @@ resp = AgGrid(
     height=head_h + row_h * len(df) + 6, fit_columns_on_grid_load=True,
     key=f"rg_grid_{part}_{sunday}_{ver}_{int(bool(mobile))}")
 
-# 결석 사유 요약 (표 칸이 좁아 사유는 여기에 모아서 표시)
 name_of = {r["id"]: str(r["name"]) for _, r in mem.iterrows()}
 absent = [f"{name_of[m]}({s[1] or '사유 없음'})" for m, s in status.items()
           if (not s[0]) and m in name_of]
@@ -386,8 +487,19 @@ if is_admin:
         picked = None
     if picked and str(picked).count("|") >= 2:
         mid, label, stamp = str(picked).split("|", 2)
-        if stamp != st.session_state.get("rg_last"):      # 같은 클릭은 한 번만 처리
+        if stamp != st.session_state.get("rg_last"):
             st.session_state["rg_last"] = stamp
             s = status.get(mid)
             attend_dialog(mid, label, sunday.isoformat(),
                           (s[0] if s else None), (s[1] if s else ""))
+
+    # 방문자 수 (관리자)
+    st.divider()
+    with st.form(f"vis_{part}_{sunday}"):
+        v_new = st.number_input("방문자 수", min_value=0, value=visitors, step=1)
+        v_saved = st.form_submit_button("방문자 수 저장", use_container_width=True)
+    if v_saved:
+        upsert("roster_visitors", [{"part": part, "sunday_date": sunday.isoformat(),
+                                    "count": int(v_new)}], "part,sunday_date")
+        st.session_state["flash"] = "방문자 수를 저장했습니다."
+        st.rerun()
