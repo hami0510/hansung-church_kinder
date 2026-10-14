@@ -228,7 +228,9 @@ if view == "명단 관리" and is_admin:
 
 # ================================================================ 출석부 (표 클릭)
 if st.session_state.get("rg_stage") not in (STAGE_PLAN, STAGE_REAL):
-    st.session_state["rg_stage"] = STAGE_REAL
+    # 일요일(KST)은 실제, 그 외 요일은 예정이 기본
+    st.session_state["rg_stage"] = (
+        STAGE_REAL if datetime.now(KST).weekday() == 6 else STAGE_PLAN)
 stage = st.segmented_control("단계", [STAGE_PLAN, STAGE_REAL], key="rg_stage",
                              label_visibility="collapsed") or STAGE_REAL
 is_plan = stage == STAGE_PLAN
