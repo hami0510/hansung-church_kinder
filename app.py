@@ -22,12 +22,11 @@ role = st.session_state["role"]
 home = st.Page("views/home.py", title="홈", icon="🏠", default=True)
 notices = st.Page("views/notices.py", title="공지사항", icon="📢")
 events = st.Page("views/events.py", title="일정 관리", icon="📅")
-roster = st.Page("views/roster.py", title="주일 출석부", icon="📋")
-roster_grid = st.Page("views/roster_grid.py", title="출석부(표 클릭)", icon="🧮")
+roster = st.Page("views/roster_grid.py", title="주일 출석부", icon="📋")
 visit_request = st.Page("views/visit_request.py", title="심방 요청", icon="🏠")
 prayer_request = st.Page("views/prayer_request.py", title="기도제목 요청", icon="🙏")
 
-pages = {"메뉴": [home, notices, events, roster, roster_grid, visit_request, prayer_request]}
+pages = {"메뉴": [home, notices, events, roster, visit_request, prayer_request]}
 
 with st.sidebar:
     if role == "admin":
