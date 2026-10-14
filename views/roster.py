@@ -11,7 +11,6 @@ is_admin = st.session_state.get("role") == "admin"
 
 PARTS = ["1부", "2부"]
 GRADES = [("조이", "5세", "#fff6c9"), ("해피", "6세", "#e3e8fb"), ("홀리", "7세", "#f6dff0")]
-GRADE_ORDER = {"조이": 0, "해피": 1, "홀리": 2, "새싹": 3, "스탭": 4}
 NONE_CLASS = 0
 WD = "월화수목금토일"
 REASONS = [
@@ -114,15 +113,30 @@ if not vis.empty:
         visitors = int(vv.iloc[0]["count"])
 
 
-def teacher_of(grade, no):
+def teacher_of(grade, no, sep="<br>"):
     m = cls[(cls["grade"] == grade) & (cls["class_no"] == no)]
     if m.empty or not isinstance(m.iloc[0]["teachers"], str):
         return ""
-    return m.iloc[0]["teachers"].replace("\n", "<br>")
+    return m.iloc[0]["teachers"].replace("\n", sep)
 
 
 def members_of(grade, no):
     return mem[(mem["grade"] == grade) & (mem["class_no"] == no)].sort_values("sort_no")
+
+
+def class_numbers(grade):
+    g = mem[mem["grade"] == grade]
+    base = set(range(1, DEFAULT_CLASSES.get(part, {}).get(grade, 0) + 1))
+    nos = sorted(base | set(g["class_no"]) | set(cls[cls["grade"] == grade]["class_no"]))
+    return [n for n in nos if n > 0]
+
+
+def totals():
+    stu = mem[mem["grade"].isin(["조이", "해피", "홀리", "새싹"])]
+    stf = mem[mem["grade"] == "스탭"]
+    s_en, s_pr = len(stu), int(stu["id"].isin(present_ids).sum())
+    t_pr = int(stf["id"].isin(present_ids).sum())
+    return s_en, s_pr, len(stf), t_pr
 
 
 def build_table():
@@ -163,9 +177,7 @@ def build_table():
     stu_en = stu_pr = 0
     for grade, age, color in GRADES:
         g = mem[mem["grade"] == grade]
-        base = set(range(1, DEFAULT_CLASSES.get(part, {}).get(grade, 0) + 1))
-        nos = sorted(base | set(g["class_no"]) | set(cls[cls["grade"] == grade]["class_no"]))
-        nos = [n for n in nos if n > 0]
+        nos = class_numbers(grade)
         if not nos:
             continue
         g_en = g_pr = 0
@@ -212,7 +224,46 @@ def build_table():
     return f"<div class='rs-wrap'><table class='rs'>{''.join(rows)}</table></div>"
 
 
-VIEWS = ["출석부"] + (["출석 체크", "명단 관리"] if is_admin else [])
+def attendance_block(title, grade, no):
+    """한 반의 출석 입력 (펼침 + 반 단위 저장)"""
+    kids = members_of(grade, no)
+    en = len(kids)
+    pr = int(kids["id"].isin(present_ids).sum())
+    fk = f"{part}_{sunday}_{grade}_{no}"
+    with st.expander(f"{title} · 재적 {en} · 출석 {pr}"):
+        if kids.empty:
+            st.caption("등록된 이름이 없습니다. '명단 관리'에서 먼저 등록하세요.")
+            return
+        if st.button("✅ 전원 출석으로 채우기", key=f"all_{fk}", use_container_width=True):
+            for _, k in kids.iterrows():
+                st.session_state[f"pr_{fk}_{k['id']}"] = True
+                st.session_state[f"rs_{fk}_{k['id']}"] = NO_REASON
+        with st.form(f"att_{fk}"):
+            for _, k in kids.iterrows():
+                cur_st = status.get(k["id"])
+                a, b = st.columns([3, 2])
+                a.checkbox(str(k["name"]), value=bool(cur_st[0]) if cur_st else False,
+                           key=f"pr_{fk}_{k['id']}")
+                cur_reason = cur_st[1] if (cur_st and cur_st[1] in REASONS) else NO_REASON
+                opts = [NO_REASON] + REASONS
+                b.selectbox("결석 사유", opts, index=opts.index(cur_reason),
+                            key=f"rs_{fk}_{k['id']}", label_visibility="collapsed")
+            saved = st.form_submit_button("이 반 저장", type="primary", use_container_width=True)
+        if saved:
+            rows_, n_pr = [], 0
+            for _, k in kids.iterrows():
+                present = bool(st.session_state.get(f"pr_{fk}_{k['id']}"))
+                reason = st.session_state.get(f"rs_{fk}_{k['id']}", NO_REASON)
+                n_pr += 1 if present else 0
+                rows_.append({"member_id": k["id"], "sunday_date": sunday.isoformat(),
+                              "present": present,
+                              "reason": None if (present or reason == NO_REASON) else reason})
+            upsert("roster_attendance", rows_, "member_id,sunday_date")
+            st.session_state["flash"] = f"{title} 저장 완료 (출석 {n_pr}/{en})"
+            st.rerun()
+
+
+VIEWS = ["출석부"] + (["명단 관리"] if is_admin else [])
 if st.session_state.get("rs_view") not in VIEWS:
     st.session_state["rs_view"] = VIEWS[0]
 view = st.segmented_control("화면", VIEWS, key="rs_view", label_visibility="collapsed")
@@ -230,84 +281,53 @@ def opt_label(o):
     return f"{names_of[g_]} {no_}반"
 
 
-# ================================================================ 출석부 (표)
+# ================================================================ 출석부 (+ 관리자 입력 모드)
 if view == "출석부":
     if mem.empty:
         st.info("등록된 명단이 없습니다." + (" '명단 관리'에서 이름을 붙여넣어 등록하세요." if is_admin else ""))
-    st.markdown(build_table(), unsafe_allow_html=True)
-    st.caption("초록 = 출석 · 연한 빨강 = 결석(사유 표시) · 흰색 = 아직 확인 안 됨")
 
-# ================================================================ 출석 체크
-elif view == "출석 체크" and is_admin:
-    combos = sorted({(r.grade, int(r.class_no)) for r in mem.itertuples()},
-                    key=lambda x: (GRADE_ORDER.get(x[0], 9), x[1]))
-    if not combos:
-        st.info("먼저 '명단 관리'에서 명단을 등록해 주세요.")
+    edit_mode = False
+    if is_admin:
+        edit_mode = st.toggle("✏️ 출석 입력 모드", key="rs_edit_mode",
+                              help="켜면 표 대신 반별 출석 입력 목록이 나옵니다.")
+
+    if not edit_mode:
+        st.markdown(build_table(), unsafe_allow_html=True)
+        st.caption("초록 = 출석 · 연한 빨강 = 결석(사유 표시) · 흰색 = 아직 확인 안 됨")
     else:
-        sel_key = f"att_sel_{part}"
-        pend = f"att_next_{part}"
-        if pend in st.session_state:
-            st.session_state[sel_key] = st.session_state.pop(pend)
-        if st.session_state.get(sel_key) not in combos:
-            st.session_state[sel_key] = combos[0]
-        st.selectbox("반 선택", combos, format_func=opt_label, key=sel_key)
-        sel = st.session_state[sel_key]
-        g, no = sel
-        kids = members_of(g, no)
+        s_en, s_pr, t_en, t_pr = totals()
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("학생 출석", f"{s_pr}/{s_en}")
+        m2.metric("교사 출석", f"{t_pr}/{t_en}")
+        m3.metric("방문자", visitors)
+        m4.metric("전체 합계", s_pr + t_pr + visitors)
+        st.caption("반을 펼쳐 출석을 체크하고, 결석이면 체크를 풀고 사유를 고른 뒤 **이 반 저장**을 누르세요.")
 
-        st.caption("출석에 체크하고, 결석이면 체크를 풀고 사유를 고르세요. 마지막에 **저장**을 누르면 반영됩니다.")
-        fk = f"{part}_{sunday}_{g}_{no}"
+        for grade, age, color in GRADES:
+            nos = class_numbers(grade)
+            if not nos:
+                continue
+            st.markdown(f"<div style='background:{color};border-radius:10px;padding:.3rem .8rem;"
+                        f"font-weight:700;margin:.8rem 0 .3rem;color:#1b3a5c'>{age} {grade}</div>",
+                        unsafe_allow_html=True)
+            for no in nos:
+                t = teacher_of(grade, no, " · ")
+                attendance_block(f"{no}반 · {t or '담임 미입력'}", grade, no)
 
-        all_present = st.button("✅ 전원 출석으로 채우기", key=f"all_{fk}", use_container_width=True)
-        for _, k in kids.iterrows():
-            cur_st = status.get(k["id"])
-            wk, rk = f"pr_{fk}_{k['id']}", f"rs_{fk}_{k['id']}"
-            if all_present:
-                st.session_state[wk] = True
-                st.session_state[rk] = NO_REASON
-            if wk not in st.session_state:
-                st.session_state[wk] = bool(cur_st[0]) if cur_st else False
-            if rk not in st.session_state:
-                st.session_state[rk] = (cur_st[1] if cur_st and cur_st[1] in REASONS else NO_REASON)
+        st.markdown("<div style='font-weight:700;margin:.8rem 0 .3rem'>🌱 새싹반 · 🧑‍🏫 스탭</div>",
+                    unsafe_allow_html=True)
+        attendance_block(f"🌱 새싹반 · {teacher_of('새싹', NONE_CLASS, ' · ') or '담당 미입력'}",
+                         "새싹", NONE_CLASS)
+        attendance_block("🧑‍🏫 스탭(교사)", "스탭", NONE_CLASS)
 
-        with st.form(f"att_{fk}"):
-            for _, k in kids.iterrows():
-                wk, rk = f"pr_{fk}_{k['id']}", f"rs_{fk}_{k['id']}"
-                a, b = st.columns([3, 2])
-                a.checkbox(str(k["name"]), key=wk)
-                b.selectbox("결석 사유", [NO_REASON] + REASONS, key=rk,
-                            label_visibility="collapsed")
-            b1, b2 = st.columns(2)
-            saved = b1.form_submit_button("저장", type="primary", use_container_width=True)
-            saved_next = b2.form_submit_button("저장 후 다음 반", use_container_width=True)
-
-        if saved or saved_next:
-            rows_ = []
-            n_pr = 0
-            for _, k in kids.iterrows():
-                present = bool(st.session_state.get(f"pr_{fk}_{k['id']}"))
-                reason = st.session_state.get(f"rs_{fk}_{k['id']}", NO_REASON)
-                n_pr += 1 if present else 0
-                rows_.append({"member_id": k["id"], "sunday_date": sunday.isoformat(),
-                              "present": present,
-                              "reason": None if (present or reason == NO_REASON) else reason})
-            if rows_:
-                upsert("roster_attendance", rows_, "member_id,sunday_date")
-            st.session_state["flash"] = f"{opt_label(sel)} 저장 완료 (출석 {n_pr}/{len(kids)})"
-            if saved_next:
-                i = combos.index(sel)
-                st.session_state[pend] = combos[(i + 1) % len(combos)]
+        with st.form(f"vis_{part}_{sunday}"):
+            v_new = st.number_input("방문자 수", min_value=0, value=visitors, step=1)
+            v_saved = st.form_submit_button("방문자 수 저장", use_container_width=True)
+        if v_saved:
+            upsert("roster_visitors", [{"part": part, "sunday_date": sunday.isoformat(),
+                                        "count": int(v_new)}], "part,sunday_date")
+            st.session_state["flash"] = "방문자 수를 저장했습니다."
             st.rerun()
-
-    st.divider()
-    with st.form(f"vis_{part}_{sunday}"):
-        v_new = st.number_input("방문자 수", min_value=0, value=visitors, step=1)
-        v_saved = st.form_submit_button("방문자 수 저장", use_container_width=True)
-    if v_saved:
-        upsert("roster_visitors", [{"part": part, "sunday_date": sunday.isoformat(),
-                                    "count": int(v_new)}], "part,sunday_date")
-        st.session_state["flash"] = "방문자 수를 저장했습니다."
-        st.rerun()
 
 # ================================================================ 명단 관리
 elif view == "명단 관리" and is_admin:
