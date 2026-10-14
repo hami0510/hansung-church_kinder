@@ -1,0 +1,5 @@
+.streamlit/secrets.toml
+.venv/
+.local_test/
+__pycache__/
+*.py[cod]
