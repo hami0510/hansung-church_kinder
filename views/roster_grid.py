@@ -1,4 +1,5 @@
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, JsCode, GridUpdateMode
@@ -17,6 +18,9 @@ REASONS = [
     "연락안됨", "병결(본인 혹은 가족)", "출근, 출장", "가족모임(명절, 여행 등)",
     "경조사(장례식, 결혼식)", "이사", "외국", "출산", "타교회", "1회성", "기타 개인사정", "대예배",
 ]
+PLAN_STATES = ["예정", "불참", "미정"]
+STAGE_PLAN = "📝 예정 (주중)"
+STAGE_REAL = "✅ 실제 (주일)"
 DEFAULT_CLASSES = {
     "1부": {"조이": 4, "해피": 4, "홀리": 4},
     "2부": {"조이": 5, "해피": 3, "홀리": 5},
@@ -27,6 +31,7 @@ TOT = "#d6e4f2"       # 합계 줄 배경
 SUB = "#eef3f8"       # 소계 줄 배경
 BARMAP = {"#fff6c9": "#f2c744", "#e3e8fb": "#6c8eef", "#f6dff0": "#d67bb8",
           "#e9f7ec": "#5cb87a", SUB: "#8795a8", TOT: "#4f6b88", "#fafbfc": "#a3b1c2"}
+KST = ZoneInfo("Asia/Seoul")
 
 st.markdown("""
 <style>
@@ -40,9 +45,15 @@ st.markdown("""
 .sumcard .v small {font-size: .8rem; font-weight: 600; color: #8a97a8;}
 .sumcard.hi {background: #e6f9e9; border-color: #b2f2bb;}
 .sumcard.hi .v {color: #1b6e2a;}
+.sumcard.warn {background: #fff9db; border-color: #ffe066;}
+.sumcard.bad {background: #fff5f5; border-color: #ffc9c9;}
+.sumcard.bad .v {color: #b91c1c;}
 .rg-title {font-size: 1.05rem; font-weight: 800; color: #1b3a5c; margin: .2rem 0 .4rem;}
 .rg-legend {display: flex; gap: .5rem; flex-wrap: wrap; font-size: .78rem; margin: .4rem 0;}
 .rg-legend span {padding: .1rem .55rem; border-radius: 999px; font-weight: 700;}
+.cmpbox {background: #f3f9ff; border: 1px solid #cfe5f8; border-radius: 14px; padding: .55rem .9rem;
+         margin: .2rem 0 .7rem; font-weight: 700; color: #1b3a5c;}
+.cmpbox .d {font-size: 1.05rem;}
 @media (max-width: 640px) {
   .sumcards {gap: .3rem; flex-wrap: nowrap;}
   .sumcard {flex: 1 1 0; padding: .35rem .2rem; border-radius: 10px; min-width: 0;}
@@ -79,6 +90,12 @@ with st.container(key="ctl"):
 mem = fetch("roster_members", "sort_no")
 cls = fetch("roster_classes")
 att = fetch("roster_attendance")
+try:
+    plan = fetch("roster_plan")
+    plan_ok_table = True
+except Exception:
+    plan = pd.DataFrame()
+    plan_ok_table = False
 
 if mem.empty:
     mem = pd.DataFrame(columns=["id", "part", "grade", "class_no", "name", "sort_no"])
@@ -90,16 +107,24 @@ else:
     att["sunday_date"] = pd.to_datetime(att["sunday_date"]).dt.date
     if "reason" not in att.columns:
         att["reason"] = None
+if plan.empty:
+    plan = pd.DataFrame(columns=["member_id", "sunday_date", "status", "reason"])
+else:
+    plan["sunday_date"] = pd.to_datetime(plan["sunday_date"]).dt.date
 
 mem = mem[mem["part"] == part].copy()
 mem["class_no"] = mem["class_no"].fillna(0).astype(int)
 cls = cls[cls["part"] == part].copy()
 cls["class_no"] = cls["class_no"].fillna(0).astype(int)
 
-status = {}
+status = {}      # 실제 출결: member_id -> (present, reason)
 for _, a in att[att["sunday_date"] == sunday].iterrows():
     status[a["member_id"]] = (bool(a["present"]),
                               a["reason"] if isinstance(a.get("reason"), str) else "")
+pstat = {}       # 예정: member_id -> (status, reason)
+for _, a in plan[plan["sunday_date"] == sunday].iterrows():
+    pstat[a["member_id"]] = (str(a["status"]),
+                             a["reason"] if isinstance(a.get("reason"), str) else "")
 
 
 def members_of(grade, no):
@@ -133,7 +158,7 @@ view = view or VIEWS[0]
 if view == "명단 관리" and is_admin:
     st.caption("담임샘과 학생 이름을 쉼표 또는 줄바꿈으로 구분해 입력하세요. "
                "저장하면 해당 반이 **입력한 내용으로 바뀝니다.** "
-               "(빠진 이름은 삭제되고, 그 이름의 출결 기록도 함께 지워집니다.)")
+               "(빠진 이름은 삭제되고, 그 이름의 출결·예정 기록도 함께 지워집니다.)")
     max_no = {g_: max(DEFAULT_CLASSES.get(part, {}).get(g_, 0), 5) for g_, _, _ in GRADES}
     options = ([(g_, n_) for g_, _, _ in GRADES for n_ in range(1, max_no[g_] + 1)]
                + [("새싹", NONE_CLASS), ("스탭", NONE_CLASS)])
@@ -202,10 +227,28 @@ if view == "명단 관리" and is_admin:
     st.stop()
 
 # ================================================================ 출석부 (표 클릭)
-if is_admin:
-    st.caption("이름 칸을 누르면 출결 팝업이 열립니다. (학생·담임·스탭 모두 동일)")
+if st.session_state.get("rg_stage") not in (STAGE_PLAN, STAGE_REAL):
+    st.session_state["rg_stage"] = STAGE_REAL
+stage = st.segmented_control("단계", [STAGE_PLAN, STAGE_REAL], key="rg_stage",
+                             label_visibility="collapsed") or STAGE_REAL
+is_plan = stage == STAGE_PLAN
+
+if is_plan and not plan_ok_table:
+    st.error("예정 기록용 테이블(roster_plan)이 아직 없습니다. Supabase SQL을 먼저 실행해 주세요.")
+    st.stop()
+
+if is_plan:
+    deadline = datetime.combine(sunday - timedelta(days=1), time(12, 0), tzinfo=KST)
+    if datetime.now(KST) > deadline:
+        st.warning(f"⏰ 예정 마감됨 ({deadline.month}/{deadline.day} 토 12:00 기준). "
+                   "관리자는 마감 후에도 수정할 수 있습니다.")
+    else:
+        st.info(f"📝 예정 파악 중 · 마감 {deadline.month}/{deadline.day}(토) 12:00")
+    st.caption("이름을 누르면 예정 / 불참 / 미정을 입력합니다." if is_admin
+               else "🔒 입력은 관리자 로그인 후 가능합니다.")
 else:
-    st.caption("🔒 출결 처리는 관리자 로그인 후 가능합니다.")
+    st.caption("이름 칸을 누르면 출결 팝업이 열립니다. (학생·담임·스탭 모두 동일)" if is_admin
+               else "🔒 출결 처리는 관리자 로그인 후 가능합니다.")
 
 mobile = st.toggle("📱 모바일 보기 (휴대폰에서는 켜 주세요)", key="rg_mobile")
 
@@ -217,8 +260,14 @@ tcounts = tm.groupby(["grade", "class_no"]).size() if not tm.empty else pd.Serie
 TN = max(2, int(tcounts.max()) if len(tcounts) else 2)
 
 
+def is_ok(mid):
+    if is_plan:
+        return pstat.get(mid, ("", ""))[0] == "예정"
+    return status.get(mid, (False, ""))[0]
+
+
 def count_pr(df):
-    return int(sum(1 for i in df["id"] if status.get(i, (False, ""))[0]))
+    return int(sum(1 for i in df["id"] if is_ok(i)))
 
 
 def make_row(**kw):
@@ -240,6 +289,11 @@ def make_row(**kw):
 
 
 def flag_of(mid):
+    if is_plan:
+        s = pstat.get(mid)
+        if s is None:
+            return ""
+        return {"예정": "pl", "불참": "no", "미정": "un"}.get(s[0], "")
     s = status.get(mid)
     if s is None:
         return ""
@@ -373,18 +427,40 @@ df = pd.DataFrame(rows)
 df["pick"] = ""
 
 # ---------------------------------------------------------------- 요약 카드
+all_ids = list(mem["id"])
+n_plan = sum(1 for i in all_ids if pstat.get(i, ("", ""))[0] == "예정")
+n_no = sum(1 for i in all_ids if pstat.get(i, ("", ""))[0] == "불참")
+n_un = sum(1 for i in all_ids if pstat.get(i, ("", ""))[0] == "미정")
+n_none = len(all_ids) - n_plan - n_no - n_un
+n_real = sum(1 for i in all_ids if status.get(i, (False, ""))[0])
 rate = round(stu_pr * 100 / stu_en) if stu_en else 0
-st.markdown(
-    "<div class='sumcards'>"
-    f"<div class='sumcard hi'><div class='t'>학생 출석</div><div class='v'>{stu_pr}<small> / {stu_en}</small></div></div>"
-    f"<div class='sumcard'><div class='t'>출석률</div><div class='v'>{rate}<small>%</small></div></div>"
-    f"<div class='sumcard'><div class='t'>교사 출석</div><div class='v'>{tch_pr}<small> / {tch_en}</small></div></div>"
-    f"<div class='sumcard'><div class='t'>전체 출석</div><div class='v'>{stu_pr + tch_pr}</div></div>"
-    "</div>", unsafe_allow_html=True)
+
+if is_plan:
+    st.markdown(
+        "<div class='sumcards'>"
+        f"<div class='sumcard hi'><div class='t'>학생 예정</div><div class='v'>{stu_pr}<small> / {stu_en}</small></div></div>"
+        f"<div class='sumcard'><div class='t'>교사 예정</div><div class='v'>{tch_pr}<small> / {tch_en}</small></div></div>"
+        f"<div class='sumcard warn'><div class='t'>미정·미입력</div><div class='v'>{n_un + n_none}</div></div>"
+        f"<div class='sumcard bad'><div class='t'>불참</div><div class='v'>{n_no}</div></div>"
+        "</div>", unsafe_allow_html=True)
+else:
+    st.markdown(
+        "<div class='sumcards'>"
+        f"<div class='sumcard hi'><div class='t'>학생 출석</div><div class='v'>{stu_pr}<small> / {stu_en}</small></div></div>"
+        f"<div class='sumcard'><div class='t'>출석률</div><div class='v'>{rate}<small>%</small></div></div>"
+        f"<div class='sumcard'><div class='t'>교사 출석</div><div class='v'>{tch_pr}<small> / {tch_en}</small></div></div>"
+        f"<div class='sumcard'><div class='t'>전체 출석</div><div class='v'>{stu_pr + tch_pr}</div></div>"
+        "</div>", unsafe_allow_html=True)
+    diff = n_real - n_plan
+    sign = "+" if diff > 0 else ""
+    st.markdown(
+        f"<div class='cmpbox'>📊 예정 vs 실제 · 예정 {n_plan}명 → 실제 {n_real}명 "
+        f"<span class='d'>({sign}{diff})</span></div>", unsafe_allow_html=True)
 
 p = part.replace("부", "")
 st.markdown(f"<div class='rg-title'>{sunday.year}년 유치{p}부 · {sunday.month}월 {sunday.day}일 "
-            f"({WD[sunday.weekday()]})</div>", unsafe_allow_html=True)
+            f"({WD[sunday.weekday()]}) · {'예정 파악' if is_plan else '실제 출석'}</div>",
+            unsafe_allow_html=True)
 
 # ---------------------------------------------------------------- 표 스타일
 FS = "13px" if mobile else "12px"
@@ -405,10 +481,12 @@ def cell_style(flag_field, bold=False):
     return JsCode(
         "function(p){var s=p.data.%s; var b={textAlign:'center',fontSize:'%s',padding:'0 1px',"
         "cursor:'pointer',lineHeight:'%s',whiteSpace:'nowrap',overflow:'hidden',color:'#1b3a5c'%s};"
-        "if(s==='on'){b.backgroundColor='#b2f2bb';b.color='#14532d';b.fontWeight='700';"
-        "b.boxShadow='inset 0 0 0 2px #fff';}"
-        "else if(s==='off'){b.backgroundColor='#ffd9d9';b.color='#b91c1c';b.fontWeight='700';"
-        "b.boxShadow='inset 0 0 0 2px #fff';}"
+        "var w='inset 0 0 0 2px #fff';"
+        "if(s==='on'){b.backgroundColor='#b2f2bb';b.color='#14532d';b.fontWeight='700';b.boxShadow=w;}"
+        "else if(s==='off'){b.backgroundColor='#ffd9d9';b.color='#b91c1c';b.fontWeight='700';b.boxShadow=w;}"
+        "else if(s==='pl'){b.backgroundColor='#d3f9d8';b.color='#2b8a3e';b.fontWeight='700';b.boxShadow=w;}"
+        "else if(s==='no'){b.backgroundColor='#ffe3e3';b.color='#c92a2a';b.fontWeight='700';b.boxShadow=w;}"
+        "else if(s==='un'){b.backgroundColor='#fff3bf';b.color='#a16207';b.fontWeight='700';b.boxShadow=w;}"
         "else if(p.data.nbg){b.backgroundColor=p.data.nbg;}"
         "else if(p.data.tb==='1'||%s){b.backgroundColor=p.data.bg;b.fontWeight='700';}"
         "return b;}" % (flag_field, FS, LH, ",fontWeight:'700'" if bold else "",
@@ -418,9 +496,11 @@ def cell_style(flag_field, bold=False):
 def name_fmt(flag_field):
     return JsCode(
         "function(p){var s=p.data.%s; var v=p.value||''; if(!v){return '';}"
-        "return (s==='on'?'✓ ':(s==='off'?'✕ ':''))+v;}" % flag_field)
+        "var m={on:'✓ ',off:'✕ ',pl:'○ ',no:'✕ ',un:'? '};"
+        "return (m[s]||'')+v;}" % flag_field)
 
 
+HEAD_PR = "예정" if is_plan else "출석"
 if mobile:
     col_defs = [{"field": "lab", "headerName": "반", "width": 56, "minWidth": 46,
                  "cellStyle": lab_style, "sortable": False}]
@@ -430,8 +510,8 @@ if mobile:
                          "valueFormatter": name_fmt(f"s{n}"), "sortable": False})
         col_defs.append({"field": f"i{n}", "hide": True})
         col_defs.append({"field": f"s{n}", "hide": True})
-    col_defs.append({"field": "cnt", "headerName": "출/재", "width": 48, "minWidth": 40,
-                     "cellStyle": base_style, "sortable": False})
+    col_defs.append({"field": "cnt", "headerName": ("예/재" if is_plan else "출/재"),
+                     "width": 48, "minWidth": 40, "cellStyle": base_style, "sortable": False})
 else:
     col_defs = [
         {"field": "age", "headerName": "나이", "width": 62, "minWidth": 46,
@@ -454,7 +534,7 @@ else:
     col_defs += [
         {"field": "en", "headerName": "재적", "width": 42, "minWidth": 32,
          "cellStyle": base_style, "sortable": False},
-        {"field": "pr", "headerName": "출석", "width": 42, "minWidth": 32,
+        {"field": "pr", "headerName": HEAD_PR, "width": 42, "minWidth": 32,
          "cellStyle": base_style, "sortable": False},
     ]
 
@@ -471,7 +551,6 @@ grid_options = {
     "columnDefs": col_defs,
     "rowHeight": row_h,
     "headerHeight": head_h,
-    "domLayout": "autoHeight",
     "suppressMovableColumns": True,
     "suppressCellFocus": True,
     "defaultColDef": {"resizable": False},
@@ -490,38 +569,100 @@ grid_css = {
     ".ag-root-wrapper": {"border-radius": "12px", "border": "1px solid #bcd7ee"},
     ".ag-cell": {"border-color": "#e3edf6 !important"},
     ".ag-row": {"border-color": "#e3edf6 !important"},
+    ".ag-body-viewport": {"overflow-y": "hidden !important"},
 }
 
 ver = st.session_state.get("rg_ver", 0)
 resp = AgGrid(
     df, gridOptions=grid_options, allow_unsafe_jscode=True, custom_css=grid_css,
     update_mode=GridUpdateMode.SELECTION_CHANGED | GridUpdateMode.VALUE_CHANGED,
-    height=head_h + row_h * len(df) + 12, fit_columns_on_grid_load=True,
-    key=f"rg_grid_{part}_{sunday}_{ver}_{int(bool(mobile))}")
+    height=head_h + row_h * (len(df) + 2) + 30, fit_columns_on_grid_load=True,
+    key=f"rg_grid_{part}_{sunday}_{ver}_{int(bool(mobile))}_{int(is_plan)}")
 
-st.markdown(
-    "<div class='rg-legend'>"
-    "<span style='background:#b2f2bb;color:#14532d'>✓ 출석</span>"
-    "<span style='background:#ffd9d9;color:#b91c1c'>✕ 결석</span>"
-    "<span style='background:#f1f3f5;color:#495057'>미확인</span>"
-    + ("<span style='background:#e7f1fb;color:#1b3a5c'>출/재 = 출석/재적</span>" if mobile else "")
-    + "</div>", unsafe_allow_html=True)
+if is_plan:
+    st.markdown(
+        "<div class='rg-legend'>"
+        "<span style='background:#d3f9d8;color:#2b8a3e'>○ 예정</span>"
+        "<span style='background:#ffe3e3;color:#c92a2a'>✕ 불참</span>"
+        "<span style='background:#fff3bf;color:#a16207'>? 미정</span>"
+        "<span style='background:#f1f3f5;color:#495057'>미입력</span>"
+        + ("<span style='background:#e7f1fb;color:#1b3a5c'>예/재 = 예정/재적</span>" if mobile else "")
+        + "</div>", unsafe_allow_html=True)
+else:
+    st.markdown(
+        "<div class='rg-legend'>"
+        "<span style='background:#b2f2bb;color:#14532d'>✓ 출석</span>"
+        "<span style='background:#ffd9d9;color:#b91c1c'>✕ 결석</span>"
+        "<span style='background:#f1f3f5;color:#495057'>미확인</span>"
+        + ("<span style='background:#e7f1fb;color:#1b3a5c'>출/재 = 출석/재적</span>" if mobile else "")
+        + "</div>", unsafe_allow_html=True)
 
 name_of = {r["id"]: str(r["name"]) for _, r in mem.iterrows()}
-absent = [f"{name_of[m]}({s[1] or '사유 없음'})" for m, s in status.items()
-          if (not s[0]) and m in name_of]
-if absent:
-    st.markdown(
-        "<div style='background:#fff5f5;border:1px solid #ffc9c9;border-radius:12px;"
-        "padding:.5rem .8rem;font-size:.85rem;color:#b91c1c'>❌ <b>결석</b> · "
-        + ", ".join(absent) + "</div>", unsafe_allow_html=True)
+
+# ---------------------------------------------------------------- 단계별 부가 정보
+if is_plan:
+    no_list = [f"{name_of[m]}({s[1] or '사유 없음'})" for m, s in pstat.items()
+               if s[0] == "불참" and m in name_of]
+    if no_list:
+        st.markdown(
+            "<div style='background:#fff5f5;border:1px solid #ffc9c9;border-radius:12px;"
+            "padding:.5rem .8rem;font-size:.85rem;color:#b91c1c'>✕ <b>불참 예정</b> · "
+            + ", ".join(no_list) + "</div>", unsafe_allow_html=True)
+
+    # 반별 예정 요약 (카톡 복사용)
+    lines = [f"[유치{p}부 {sunday.month}/{sunday.day}({WD[sunday.weekday()]}) 예배 참석 예정]"]
+    for grade, age, color in GRADES:
+        for no in class_numbers(grade):
+            kids = members_of(grade, no)
+            if kids.empty:
+                continue
+            a = sum(1 for i in kids["id"] if pstat.get(i, ("", ""))[0] == "예정")
+            b = sum(1 for i in kids["id"] if pstat.get(i, ("", ""))[0] == "불참")
+            c = sum(1 for i in kids["id"] if pstat.get(i, ("", ""))[0] == "미정")
+            d = len(kids) - a - b - c
+            lines.append(f"{grade}{no}반 예정 {a} / 재적 {len(kids)} (불참 {b}, 미정 {c}, 미입력 {d})")
+    spk = members_of("새싹", NONE_CLASS)
+    if not spk.empty:
+        a = sum(1 for i in spk["id"] if pstat.get(i, ("", ""))[0] == "예정")
+        lines.append(f"새싹반 예정 {a} / 재적 {len(spk)}")
+    lines.append(f"학생 예정 {stu_pr} / 재적 {stu_en}")
+    lines.append(f"교사 예정 {tch_pr} / {tch_en}")
+    lines.append(f"합계 {stu_pr + tch_pr}명")
+    with st.expander("📋 반별 예정 요약 (카톡에 복사해서 올리기)", expanded=False):
+        st.code("\n".join(lines), language=None)
+else:
+    miss = [name_of[m] for m, s in pstat.items()
+            if s[0] == "예정" and m in name_of and m in status and not status[m][0]]
+    unchecked = [name_of[m] for m, s in pstat.items()
+                 if s[0] == "예정" and m in name_of and m not in status]
+    box = []
+    if miss:
+        box.append("📉 <b>예정했으나 결석</b> · " + ", ".join(miss))
+    if unchecked:
+        box.append(f"⏳ <b>예정했으나 아직 미확인</b> · {len(unchecked)}명")
+    if box:
+        st.markdown(
+            "<div style='background:#fff9db;border:1px solid #ffe066;border-radius:12px;"
+            "padding:.5rem .8rem;font-size:.85rem;color:#7c5e00'>" + "<br>".join(box) + "</div>",
+            unsafe_allow_html=True)
+    absent = [f"{name_of[m]}({s[1] or '사유 없음'})" for m, s in status.items()
+              if (not s[0]) and m in name_of]
+    if absent:
+        st.markdown(
+            "<div style='background:#fff5f5;border:1px solid #ffc9c9;border-radius:12px;"
+            "padding:.5rem .8rem;font-size:.85rem;color:#b91c1c;margin-top:.4rem'>❌ <b>결석</b> · "
+            + ", ".join(absent) + "</div>", unsafe_allow_html=True)
 
 
+# ---------------------------------------------------------------- 팝업
 @st.dialog("출결 처리")
 def attend_dialog(member_id: str, name: str, d_iso: str, cur_present, cur_reason: str):
     d = date.fromisoformat(d_iso)
     st.markdown(f"### {name}")
     st.caption(f"{d.month}월 {d.day}일 ({WD[d.weekday()]}) · {part}")
+    ps = pstat.get(member_id)
+    if ps:
+        st.caption(f"📝 주중 예정: {ps[0]}" + (f" ({ps[1]})" if ps[1] else ""))
     choice = st.radio("출결", ["출석", "결석"], horizontal=True,
                       index=1 if cur_present is False else 0, key=f"rgd_c_{member_id}")
     reason = None
@@ -546,6 +687,36 @@ def attend_dialog(member_id: str, name: str, d_iso: str, cur_present, cur_reason
         st.rerun()
 
 
+@st.dialog("예정 입력")
+def plan_dialog(member_id: str, name: str, d_iso: str, cur_status, cur_reason: str):
+    d = date.fromisoformat(d_iso)
+    st.markdown(f"### {name}")
+    st.caption(f"{d.month}월 {d.day}일 ({WD[d.weekday()]}) 예배 · {part} · 주중 예정 파악")
+    choice = st.radio("예정", PLAN_STATES, horizontal=True,
+                      index=PLAN_STATES.index(cur_status) if cur_status in PLAN_STATES else 0,
+                      key=f"pld_c_{member_id}")
+    reason = None
+    if choice == "불참":
+        opts = ["(사유 선택)"] + REASONS
+        idx = opts.index(cur_reason) if cur_reason in opts else 0
+        reason = st.selectbox("불참 사유", opts, index=idx, key=f"pld_r_{member_id}")
+        if reason == "(사유 선택)":
+            reason = None
+    b1, b2 = st.columns(2)
+    if b1.button("저장", type="primary", use_container_width=True, key=f"pld_s_{member_id}"):
+        upsert("roster_plan",
+               [{"member_id": member_id, "sunday_date": d_iso, "status": choice,
+                 "reason": reason if choice == "불참" else None}], "member_id,sunday_date")
+        st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
+        st.rerun()
+    if b2.button("기록 지우기", use_container_width=True, key=f"pld_d_{member_id}"):
+        db.get_client().table("roster_plan").delete() \
+            .eq("member_id", member_id).eq("sunday_date", d_iso).execute()
+        db._fetch_cached.clear()
+        st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
+        st.rerun()
+
+
 if is_admin:
     picked = None
     try:
@@ -557,40 +728,46 @@ if is_admin:
         picked = None
     if picked and str(picked).count("|") >= 2:
         mid, label, stamp = str(picked).split("|", 2)
-        label = label.replace("✓ ", "").replace("✕ ", "")
+        for pre in ("✓ ", "✕ ", "○ ", "? "):
+            label = label.replace(pre, "")
         if stamp != st.session_state.get("rg_last"):
             st.session_state["rg_last"] = stamp
-            s = status.get(mid)
-            attend_dialog(mid, label, sunday.isoformat(),
-                          (s[0] if s else None), (s[1] if s else ""))
+            if is_plan:
+                s = pstat.get(mid)
+                plan_dialog(mid, label, sunday.isoformat(), (s[0] if s else None), (s[1] if s else ""))
+            else:
+                s = status.get(mid)
+                attend_dialog(mid, label, sunday.isoformat(),
+                              (s[0] if s else None), (s[1] if s else ""))
 
-    # ------------------------------------------------------------ 새신자 추가 (관리자)
-    st.divider()
-    st.markdown("#### 🌟 새신자 추가")
-    st.caption("이름을 입력하면 🌱 새싹반 맨 끝에 추가되고, 선택한 주일 날짜 출석으로 기록됩니다.")
+    # ------------------------------------------------------------ 새신자 추가 (실제 단계, 관리자)
+    if not is_plan:
+        st.divider()
+        st.markdown("#### 🌟 새신자 추가")
+        st.caption("이름을 입력하면 🌱 새싹반 맨 끝에 추가되고, 선택한 주일 날짜 출석으로 기록됩니다.")
 
-    with st.form(f"newcomer_{part}", clear_on_submit=True):
-        new_name = st.text_input("새신자 이름")
-        add_ok = st.form_submit_button("새신자 추가", type="primary", use_container_width=True)
-    if add_ok:
-        nm = new_name.strip()
-        if not nm:
-            st.error("이름을 입력해 주세요.")
-        elif nm in set(members_of("새싹", NONE_CLASS)["name"]):
-            st.warning(f"새싹반에 이미 '{nm}'이(가) 있습니다.")
-        else:
-            order = len(members_of("새싹", NONE_CLASS))
-            res = db.get_client().table("roster_members").insert(
-                {"part": part, "grade": "새싹", "class_no": None,
-                 "name": nm, "sort_no": order}).execute()
-            db._fetch_cached.clear()
-            try:
-                new_id = res.data[0]["id"]
-                upsert("roster_attendance",
-                       [{"member_id": new_id, "sunday_date": sunday.isoformat(),
-                         "present": True, "reason": None}], "member_id,sunday_date")
-            except Exception:
-                pass
-            st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
-            st.session_state["flash"] = f"새신자 '{nm}'을(를) 새싹반에 추가했습니다. (출석 처리됨)"
-            st.rerun()
+        with st.form(f"newcomer_{part}", clear_on_submit=True):
+            new_name = st.text_input("새신자 이름")
+            add_ok = st.form_submit_button("새신자 추가", type="primary", use_container_width=True)
+        if add_ok:
+            nm = new_name.strip()
+            if not nm:
+                st.error("이름을 입력해 주세요.")
+            elif nm in set(members_of("새싹", NONE_CLASS)["name"]):
+                st.warning(f"새싹반에 이미 '{nm}'이(가) 있습니다.")
+            else:
+                order = len(members_of("새싹", NONE_CLASS))
+                res = db.get_client().table("roster_members").insert(
+                    {"part": part, "grade": "새싹", "class_no": None,
+                     "name": nm, "sort_no": order}).execute()
+                db._fetch_cached.clear()
+                try:
+                    new_id = res.data[0]["id"]
+                    upsert("roster_attendance",
+                           [{"member_id": new_id, "sunday_date": sunday.isoformat(),
+                             "present": True, "reason": None}], "member_id,sunday_date")
+                except Exception:
+                    pass
+                st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
+                st.session_state["flash"] = f"새신자 '{nm}'을(를) 새싹반에 추가했습니다. (출석 처리됨)"
+                st.rerun()
