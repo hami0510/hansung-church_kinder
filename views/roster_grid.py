@@ -117,13 +117,15 @@ mem["class_no"] = mem["class_no"].fillna(0).astype(int)
 cls = cls[cls["part"] == part].copy()
 cls["class_no"] = cls["class_no"].fillna(0).astype(int)
 
+part_ids = set(mem["id"])      # 선택한 부의 명단 id (다른 부 기록이 섞이지 않게)
+
 status = {}      # 실제 출결: member_id -> (present, reason)
-for _, a in att[att["sunday_date"] == sunday].iterrows():
+for _, a in att[(att["sunday_date"] == sunday) & (att["member_id"].isin(part_ids))].iterrows():
     status[a["member_id"]] = (bool(a["present"]),
                               a["reason"] if isinstance(a.get("reason"), str) else "")
 pstat = {}       # 예정: member_id -> (status, reason)
 pmeta = {}       # 예정 마지막 수정: member_id -> (시각 문자열, 입력자)
-for _, a in plan[plan["sunday_date"] == sunday].iterrows():
+for _, a in plan[(plan["sunday_date"] == sunday) & (plan["member_id"].isin(part_ids))].iterrows():
     pstat[a["member_id"]] = (str(a["status"]),
                              a["reason"] if isinstance(a.get("reason"), str) else "")
     when = ""
@@ -634,8 +636,6 @@ def grouped_lines(pairs):
             key = "스탭"
         elif g == "새싹":
             key = "새싹"
-        elif g.startswith("담임"):
-            key = g + (str(n) if n else "")
         else:
             key = g + (str(n) if n else "")
         sr = short_reason(rsn)
@@ -645,6 +645,7 @@ def grouped_lines(pairs):
 
 
 def show_grouped(title, pairs):
+    pairs = [(m, r) for m, r in pairs if m in part_ids]
     if not pairs:
         return
     by_cls, by_reason = grouped_lines(pairs)
