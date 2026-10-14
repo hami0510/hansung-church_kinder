@@ -245,8 +245,11 @@ elif view == "명단 관리" and is_admin:
     options = ([(g_, n_) for g_, _, _ in GRADES for n_ in range(1, max_no[g_] + 1)]
                + [("새싹", NONE_CLASS), ("스탭", NONE_CLASS)])
 
-    # 저장 후에도 선택한 반을 유지, '다음 반' 버튼으로 이동
+    # 저장 후에도 선택한 반을 유지, '다음 반' 이동은 선택칸을 그리기 전에 적용
     sel_key = f"edit_sel_{part}"
+    pending_key = f"edit_next_{part}"
+    if pending_key in st.session_state:
+        st.session_state[sel_key] = st.session_state.pop(pending_key)
     if st.session_state.get(sel_key) not in options:
         st.session_state[sel_key] = options[0]
     st.selectbox("편집할 반", options, format_func=opt_label, key=sel_key)
@@ -288,5 +291,5 @@ elif view == "명단 관리" and is_admin:
         st.session_state["flash"] = f"{part} {opt_label(sel2)} 저장 완료 ({len(new_names)}명)"
         if saved_next:
             i = options.index(sel2)
-            st.session_state[sel_key] = options[(i + 1) % len(options)]
+            st.session_state[pending_key] = options[(i + 1) % len(options)]
         st.rerun()
