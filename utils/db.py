@@ -45,6 +45,19 @@ def delete(table: str, row_id: str):
     _fetch_cached.clear()
     return res
 
+def upsert(table: str, rows, on_conflict: str):
+    res = get_client().table(table).upsert(rows, on_conflict=on_conflict).execute()
+    _fetch_cached.clear()
+    return res
+
+
+def delete_where(table: str, **eq):
+    q = get_client().table(table).delete()
+    for k, v in eq.items():
+        q = q.eq(k, v)
+    res = q.execute()
+    _fetch_cached.clear()
+    return res
 
 # ---------- 사진 ----------
 def process_image(file, max_side: int = 800) -> bytes:
