@@ -157,7 +157,7 @@ view = view or VIEWS[0]
 # ================================================================ 명단 관리 (관리자)
 if view == "명단 관리" and is_admin:
     st.caption("담임샘과 학생 이름을 쉼표 또는 줄바꿈으로 구분해 입력하세요. "
-               "저장하면 해당 반이 **입력한 내용으로 바뀝니다.** "
+               "저장하면 해당 반이 **입력한 내용으로 바뀌고 가나다순으로 정렬됩니다.** "
                "(빠진 이름은 삭제되고, 그 이름의 출결·예정 기록도 함께 지워집니다.)")
     max_no = {g_: max(DEFAULT_CLASSES.get(part, {}).get(g_, 0), 5) for g_, _, _ in GRADES}
     options = ([(g_, n_) for g_, _, _ in GRADES for n_ in range(1, max_no[g_] + 1)]
@@ -201,6 +201,7 @@ if view == "명단 관리" and is_admin:
         cls_no = None if no2 == NONE_CLASS else no2
 
         def sync(grade_name, cur_df, new_names):
+            new_names = sorted(new_names)          # 가나다순 정렬
             old = {r["name"]: r["id"] for _, r in cur_df.iterrows()}
             for nm, mid in old.items():
                 if nm not in new_names:
@@ -214,12 +215,12 @@ if view == "명단 관리" and is_admin:
 
         sync(g2, cur_stu, parse_names(stu_txt))
         if has_teacher:
-            t_names = parse_names(tch_txt)
+            t_names = sorted(parse_names(tch_txt))
             sync(tg(g2), cur_tch, t_names)
             upsert("roster_classes", [{"part": part, "grade": g2, "class_no": no2,
                                        "teachers": "\n".join(t_names) or None}],
                    "part,grade,class_no")
-        st.session_state["flash"] = f"{part} {opt_label((g2, no2))} 저장 완료"
+        st.session_state["flash"] = f"{part} {opt_label((g2, no2))} 저장 완료 (가나다순)"
         if saved_next:
             i = options.index((g2, no2))
             st.session_state[pend_key] = options[(i + 1) % len(options)]
@@ -746,7 +747,7 @@ if is_admin:
     if not is_plan:
         st.divider()
         st.markdown("#### 🌟 새신자 추가")
-        st.caption("이름을 입력하면 🌱 새싹반 맨 끝에 추가되고, 선택한 주일 날짜 출석으로 기록됩니다.")
+        st.caption("이름을 입력하면 🌱 새싹반에 추가(가나다순)되고, 선택한 주일 날짜 출석으로 기록됩니다.")
 
         with st.form(f"newcomer_{part}", clear_on_submit=True):
             new_name = st.text_input("새신자 이름")
@@ -768,6 +769,16 @@ if is_admin:
                     upsert("roster_attendance",
                            [{"member_id": new_id, "sunday_date": sunday.isoformat(),
                              "present": True, "reason": None}], "member_id,sunday_date")
+                except Exception:
+                    pass
+                # 새싹반 가나다순 재정렬
+                try:
+                    allsp = db.get_client().table("roster_members").select("id,name") \
+                        .eq("part", part).eq("grade", "새싹").execute().data or []
+                    for i, r in enumerate(sorted(allsp, key=lambda x: x["name"])):
+                        db.get_client().table("roster_members").update({"sort_no": i}) \
+                            .eq("id", r["id"]).execute()
+                    db._fetch_cached.clear()
                 except Exception:
                     pass
                 st.session_state["rg_ver"] = st.session_state.get("rg_ver", 0) + 1
