@@ -5,7 +5,6 @@ import streamlit as st
 from utils.db import fetch
 from utils.ui import hero, stats_line
 from utils.notice_ui import notice_cards
-from utils.birthdays import collect, upcoming
 
 try:
     from streamlit_calendar import calendar as st_calendar
@@ -17,19 +16,12 @@ try:
 except Exception:
     _holidays = None
 
-# 아동 생일(이름·반만)을 일반 방문자에게도 보여줄지 (False = 관리자만)
-SHOW_CHILD_BIRTHDAY_TO_ALL = True
-# 다가오는 생일을 며칠 앞까지 보여줄지
-UPCOMING_DAYS = 30
-# 달력에 공휴일을 표시할지
 SHOW_HOLIDAYS = True
-# 공휴일 이름 바꾸기 (왼쪽: 패키지가 주는 이름 → 오른쪽: 화면에 표시할 이름)
 RENAME = {"기독탄신일": "성탄절", "신정연휴": "신정"}
 
 hero()
 
 today = date.today()
-is_admin = st.session_state.get("role") == "admin"
 
 
 def fmt_time(v):
@@ -46,18 +38,7 @@ if not ev.empty:
     ev["time_str"] = ev["event_time"].apply(fmt_time)
     ev = ev.assign(_k=ev["time_str"].replace("", "99:99")).sort_values(["event_date", "_k"])
 
-# 생일 목록
-children = fetch("children")
-teachers = fetch("teachers")
-for df_ in (children, teachers):
-    for col in ("service_part", "class_no", "birth_date"):
-        if not df_.empty and col not in df_.columns:
-            df_[col] = None
-show_children = SHOW_CHILD_BIRTHDAY_TO_ALL or is_admin
-people_all = collect(children if show_children else None, teachers)
-
-# 공휴일 (대체공휴일 포함, 앞뒤 해까지)
-holiday_map = {}  # "YYYY-MM-DD" -> 공휴일 이름
+holiday_map = {}
 if SHOW_HOLIDAYS and _holidays is not None:
     try:
         kr = _holidays.country_holidays(
@@ -67,19 +48,11 @@ if SHOW_HOLIDAYS and _holidays is not None:
         holiday_map = {}
 
 # ---------- 현황 한 줄 ----------
-n_children = int((children["is_active"] == True).sum()) if not children.empty else 0
-n_teachers = int((teachers["is_active"] == True).sum()) if not teachers.empty else 0
 week_end = today + timedelta(days=7)
 n_events = 0
 if not ev.empty:
     n_events = int(((ev["event_date"] >= today) & (ev["event_date"] <= week_end)).sum())
-n_bday = len(upcoming(people_all, today, days=7))
-stats_line([
-    ("👧", "재적 아동", f"{n_children}명"),
-    ("👩‍🏫", "교사", f"{n_teachers}명"),
-    ("📅", "이번 주 일정", f"{n_events}건"),
-    ("🎂", "이번 주 생일", f"{n_bday}명"),
-])
+stats_line([("📅", "이번 주 일정", f"{n_events}건")])
 
 # ---------- 공지 ----------
 try:
@@ -94,7 +67,7 @@ if not nt.empty:
 
 # ---------- 달력용 데이터 ----------
 cal_events = []
-day_events = {}  # "YYYY-MM-DD" -> 일정 행 목록 (팝업용)
+day_events = {}
 if not ev.empty:
     for _, r in ev.iterrows():
         iso = r["event_date"].isoformat()
@@ -109,7 +82,6 @@ if not ev.empty:
             "backgroundColor": "#dff0ff", "borderColor": "#bfe0fa", "textColor": "#1b3a5c",
         })
 
-# 공휴일: 칩(눌러도 팝업 없음, id가 hol_ 로 시작) + 칸 배경(분홍)
 for iso, name in holiday_map.items():
     cal_events.append({
         "id": f"hol_{iso}", "title": name, "start": iso, "allDay": True,
@@ -120,22 +92,6 @@ for iso, name in holiday_map.items():
         "id": f"holbg_{iso}", "start": iso, "allDay": True, "display": "background",
         "backgroundColor": "#fff0f0",
     })
-
-# 달력의 생일 칩(🎂)과 팝업용 생일 목록: 앞뒤 해를 포함해 3개 연도 분량
-day_bds = {}  # "YYYY-MM-DD" -> 생일 목록
-for y in (today.year - 1, today.year, today.year + 1):
-    for p in people_all:
-        try:
-            d_ = date(y, p["month"], p["day"])
-        except ValueError:  # 2/29 생일은 평년에 2/28로
-            d_ = date(y, 2, 28)
-        iso = d_.isoformat()
-        day_bds.setdefault(iso, []).append(p)
-        cal_events.append({
-            "id": f"bd_{iso}_{p['name']}", "title": f"🎂 {p['name']}", "start": iso,
-            "allDay": True,
-            "backgroundColor": "#fff3bf", "borderColor": "#ffd43b", "textColor": "#5c4a00",
-        })
 
 
 @st.dialog("📅 일정 보기")
@@ -148,8 +104,7 @@ def show_day(iso: str):
             f"<div style='color:#c92a2a;font-weight:700;margin-bottom:.4rem'>"
             f"{html.escape(holiday_map[iso])}</div>", unsafe_allow_html=True)
     evs = day_events.get(iso, [])
-    bds = day_bds.get(iso, [])
-    if not evs and not bds:
+    if not evs:
         st.write("이 날은 등록된 일정이 없습니다.")
         return
     cards = ["<div class='kcards' style='grid-template-columns:1fr'>"]
@@ -169,13 +124,6 @@ def show_day(iso: str):
             + (f"<div class='ksub'>📍 {html.escape(loc)}</div>" if loc else "")
             + (f"<div class='ksub'>{html.escape(desc).replace(chr(10), '<br>')}</div>" if desc else "")
             + "</div>")
-    for p in bds:
-        sub = p["cls"] if p["kind"] == "아동" else "선생님"
-        cards.append(
-            "<div class='kcard'>"
-            f"<div class='ktop'>🎂 {html.escape(str(p['name']))}"
-            f"<span class='ktag'>{html.escape(p['kind'])}</span></div>"
-            f"<div class='ksub'>{html.escape(sub)} 생일</div></div>")
     cards.append("</div>")
     st.markdown("".join(cards), unsafe_allow_html=True)
 
@@ -200,7 +148,6 @@ else:
         "buttonText": {"today": "오늘"},
         "eventTimeFormat": {"hour": "2-digit", "minute": "2-digit", "hour12": False},
     }
-    # 공휴일 칸(분홍 배경)의 날짜 숫자를 빨강으로: 배경 이벤트가 있는 칸을 :has()로 찾음
     custom_css = """
         .fc-toolbar-title {font-size: 1.3rem !important; font-weight: 700;}
         .fc-col-header-cell {background: #cfe9fc;}
@@ -221,7 +168,6 @@ else:
           .fc-event {padding: 3px 4px; font-size: 0.78rem; margin-bottom: 2px;}
         }
     """
-    # 날짜 칸 클릭(dateClick)은 받지 않음: 일정 칩을 눌렀을 때만 팝업이 열림
     state = st_calendar(events=cal_events, options=options, custom_css=custom_css,
                         callbacks=["eventClick"], key="home_cal")
 
@@ -230,76 +176,15 @@ else:
         ec = state["eventClick"]
         ev_id = str(ec.get("event", {}).get("id", ""))
         start = str(ec.get("event", {}).get("start", ""))
-        if not ev_id.startswith("hol"):  # 공휴일 칩·배경은 팝업 없음
+        if not ev_id.startswith("hol"):
             clicked_iso = start[:10] or None
             click_id = (ev_id, str(ec.get("timeStamp", "")))
 
-    # 새로운 클릭일 때만 팝업을 연다 (이미 처리한 클릭은 무시)
     if clicked_iso and click_id != st.session_state.get("last_click_id"):
         st.session_state["last_click_id"] = click_id
         show_day(clicked_iso)
 
-    # 일정이 없는 날도 보고 싶을 때: 날짜 직접 선택
     with st.expander("📆 날짜를 골라서 보기"):
         pick = st.date_input("날짜", value=today, key="pick_day")
         if st.button("이 날짜 열기", key="open_pick", use_container_width=True):
             show_day(pick.isoformat())
-
-# ---------- 다가오는 생일 (달력 아래, 항상 표시) ----------
-st.subheader("🎂 다가오는 생일")
-st.caption(f"오늘부터 {UPCOMING_DAYS}일 이내 생일입니다.")
-
-soon = upcoming(people_all, today, days=UPCOMING_DAYS)
-kids = [p for p in soon if p["kind"] == "아동"]
-teas = [p for p in soon if p["kind"] == "교사"]
-
-
-def bday_rows(items):
-    out = []
-    for p in items:
-        d = p["date"]
-        left = (d - today).days
-        if left == 0:
-            badge = "오늘 🎉"
-        elif left == 1:
-            badge = "내일"
-        else:
-            badge = f"D-{left}"
-        sub = p["cls"] if p["kind"] == "아동" else "선생님"
-        out.append(
-            "<div style='display:flex;align-items:baseline;gap:.6rem;padding:.5rem .2rem;"
-            "border-bottom:1px solid rgba(128,128,128,.18);line-height:1.35'>"
-            f"<span style='flex:0 0 5.6rem;font-weight:700;color:#3b5f85'>"
-            f"{d.month}/{d.day}({'월화수목금토일'[d.weekday()]})</span>"
-            f"<span style='flex:1;min-width:0'><b>{html.escape(str(p['name']))}</b>"
-            f"<span style='font-size:.85rem;color:#8a97a8'> · {html.escape(sub)}</span></span>"
-            f"<span style='font-size:.78rem;padding:.05rem .55rem;border-radius:999px;"
-            f"background:#fff3bf;color:#5c4a00;white-space:nowrap'>{html.escape(badge)}</span>"
-            "</div>")
-    return "".join(out)
-
-
-def count_with_birth(df):
-    if df is None or df.empty or "birth_date" not in df.columns:
-        return 0
-    return int(pd.to_datetime(df["birth_date"], errors="coerce").notna().sum())
-
-
-t_kids, t_teas = st.tabs([f"아동 ({len(kids)})", f"교사 ({len(teas)})"])
-
-with t_kids:
-    if not show_children:
-        st.info("아동 생일은 관리자 로그인 후 볼 수 있습니다.")
-    elif kids:
-        st.markdown(bday_rows(kids), unsafe_allow_html=True)
-    else:
-        st.write(f"{UPCOMING_DAYS}일 이내 생일인 아동이 없습니다.")
-        st.caption(f"생년월일이 입력된 아동: {count_with_birth(children)}명")
-
-with t_teas:
-    if teas:
-        st.markdown(bday_rows(teas), unsafe_allow_html=True)
-    else:
-        st.write(f"{UPCOMING_DAYS}일 이내 생일인 교사가 없습니다.")
-        st.caption(f"생년월일이 입력된 교사: {count_with_birth(teachers)}명 "
-                   "(교사 생년월일은 '교사·반 명단 → 수정'에서 입력)")
