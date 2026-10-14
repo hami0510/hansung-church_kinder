@@ -19,7 +19,6 @@ REASONS = [
     "연락안됨", "병결(본인 혹은 가족)", "출근, 출장", "가족모임(명절, 여행 등)",
     "경조사(장례식, 결혼식)", "이사", "외국", "출산", "타교회", "1회성", "기타 개인사정", "대예배",
 ]
-NO_REASON = "(사유 선택)"
 DEFAULT_CLASSES = {
     "1부": {"조이": 4, "해피": 4, "홀리": 4},
     "2부": {"조이": 5, "해피": 3, "홀리": 5},
@@ -207,42 +206,57 @@ def build_table():
     return f"<div class='rs-wrap'><table class='rs'>{''.join(rows)}</table></div>"
 
 
-def save_status(member_id, present, reason):
-    """즉시 저장 (present=None 이면 기록 삭제)"""
-    if present is None:
-        db.get_client().table("roster_attendance").delete() \
-            .eq("member_id", member_id).eq("sunday_date", sunday.isoformat()).execute()
-        db._fetch_cached.clear()
-    else:
+def clear_status(member_id, d):
+    db.get_client().table("roster_attendance").delete() \
+        .eq("member_id", member_id).eq("sunday_date", d.isoformat()).execute()
+    db._fetch_cached.clear()
+
+
+# ---------------------------------------------------------------- 이름 클릭 팝업
+@st.dialog("출결 처리")
+def attend_dialog(member_id: str, name: str, d_iso: str, cur_present, cur_reason: str):
+    d = date.fromisoformat(d_iso)
+    st.markdown(f"### {name}")
+    st.caption(f"{d.month}월 {d.day}일 ({WD[d.weekday()]}) · {part}")
+
+    choice = st.radio("출결", ["출석", "결석"], horizontal=True,
+                      index=1 if cur_present is False else 0, key=f"dlg_c_{member_id}")
+    reason = None
+    if choice == "결석":
+        opts = ["(사유 선택)"] + REASONS
+        idx = opts.index(cur_reason) if cur_reason in opts else 0
+        reason = st.selectbox("결석 사유", opts, index=idx, key=f"dlg_r_{member_id}")
+        if reason == "(사유 선택)":
+            reason = None
+
+    b1, b2 = st.columns(2)
+    if b1.button("저장", type="primary", use_container_width=True, key=f"dlg_s_{member_id}"):
         upsert("roster_attendance",
-               [{"member_id": member_id, "sunday_date": sunday.isoformat(),
-                 "present": bool(present), "reason": None if present else (reason or None)}],
+               [{"member_id": member_id, "sunday_date": d_iso,
+                 "present": choice == "출석", "reason": reason if choice == "결석" else None}],
                "member_id,sunday_date")
+        st.rerun()
+    if b2.button("기록 지우기", use_container_width=True, key=f"dlg_d_{member_id}"):
+        clear_status(member_id, d)
+        st.rerun()
 
 
-def on_name(member_id):
-    cur = status.get(member_id)
-    if cur is not None and cur[0]:
-        save_status(member_id, None, None)       # 출석 → 해제
-    else:
-        save_status(member_id, True, None)       # 미확인/결석 → 출석
-
-
-def on_reason(member_id, key):
-    val = st.session_state.get(key)
-    if val and val != NO_REASON:
-        save_status(member_id, False, val)
-    else:
-        cur = status.get(member_id)
-        if cur is not None and not cur[0]:
-            save_status(member_id, None, None)
-
-
-def on_all(kids):
-    rows_ = [{"member_id": r["id"], "sunday_date": sunday.isoformat(),
-              "present": True, "reason": None} for _, r in kids.iterrows()]
-    if rows_:
-        upsert("roster_attendance", rows_, "member_id,sunday_date")
+def name_buttons(kids, tag):
+    if kids.empty:
+        st.caption("등록된 이름이 없습니다. '명단 관리'에서 먼저 등록하세요.")
+        return
+    cols_n = 3
+    for i in range(0, len(kids), cols_n):
+        cols = st.columns(cols_n)
+        for col, (_, k) in zip(cols, kids.iloc[i:i + cols_n].iterrows()):
+            s = status.get(k["id"])
+            mark = "✅ " if (s and s[0]) else ("❌ " if s else "")
+            with col:
+                if st.button(f"{mark}{k['name']}", key=f"nm_{tag}_{part}_{sunday}_{k['id']}",
+                             use_container_width=True,
+                             type="primary" if (s and s[0]) else "secondary"):
+                    attend_dialog(k["id"], str(k["name"]), sunday.isoformat(),
+                                  (s[0] if s else None), (s[1] if s else ""))
 
 
 VIEWS = ["출석부"] + (["명단 관리"] if is_admin else [])
@@ -251,7 +265,7 @@ if st.session_state.get("rs_view") not in VIEWS:
 view = st.segmented_control("화면", VIEWS, key="rs_view", label_visibility="collapsed")
 view = view or VIEWS[0]
 
-# ================================================================ 출석부 + 빠른 입력
+# ================================================================ 출석부 + 이름 클릭 입력
 if view == "출석부":
     if mem.empty:
         st.info("등록된 명단이 없습니다." + (" '명단 관리'에서 이름을 붙여넣어 등록하세요." if is_admin else ""))
@@ -259,7 +273,7 @@ if view == "출석부":
     st.caption("초록 = 출석 · 연한 빨강 = 결석(사유 표시) · 흰색 = 아직 확인 안 됨")
 
     if is_admin:
-        st.markdown("### ✏️ 빠른 입력")
+        st.markdown("### ✏️ 이름 눌러서 출결 처리")
         combos = sorted({(r.grade, int(r.class_no)) for r in mem.itertuples()},
                         key=lambda x: (GRADE_ORDER.get(x[0], 9), x[1]))
         if not combos:
@@ -271,29 +285,15 @@ if view == "출석부":
             st.selectbox("반 선택", combos, format_func=opt_label, key=sel_key)
             g, no = st.session_state[sel_key]
             kids = members_of(g, no)
-            st.caption("이름을 누르면 출석(초록), 다시 누르면 해제됩니다. 결석이면 이름 아래에서 사유를 고르세요. 바로 저장됩니다.")
-            st.button("✅ 이 반 전원 출석", key=f"all_{part}_{sunday}_{g}_{no}",
-                      on_click=on_all, args=(kids,), use_container_width=True)
-
-            cols_n = 3
-            kid_rows = [kids.iloc[i:i + cols_n] for i in range(0, len(kids), cols_n)]
-            for chunk in kid_rows:
-                cols = st.columns(cols_n)
-                for col, (_, k) in zip(cols, chunk.iterrows()):
-                    mid = k["id"]
-                    s = status.get(mid)
-                    mark = "✅ " if (s and s[0]) else ("❌ " if s else "")
-                    with col:
-                        st.button(f"{mark}{k['name']}", key=f"nm_{part}_{sunday}_{mid}",
-                                  on_click=on_name, args=(mid,), use_container_width=True,
-                                  type="primary" if (s and s[0]) else "secondary")
-                        rk = f"rsn_{part}_{sunday}_{mid}"
-                        opts = [NO_REASON] + REASONS
-                        cur_reason = s[1] if (s and not s[0] and s[1] in REASONS) else NO_REASON
-                        # 서버 상태와 선택칸을 항상 맞춤
-                        st.session_state[rk] = cur_reason
-                        st.selectbox("사유", opts, key=rk, label_visibility="collapsed",
-                                     on_change=on_reason, args=(mid, rk))
+            st.caption("이름을 누르면 팝업이 열립니다. ✅ 출석 · ❌ 결석 · 표시 없음 = 미확인")
+            if st.button("✅ 이 반 전원 출석", key=f"all_{part}_{sunday}_{g}_{no}",
+                         use_container_width=True) and not kids.empty:
+                upsert("roster_attendance",
+                       [{"member_id": r["id"], "sunday_date": sunday.isoformat(),
+                         "present": True, "reason": None} for _, r in kids.iterrows()],
+                       "member_id,sunday_date")
+                st.rerun()
+            name_buttons(kids, f"{g}{no}")
 
         with st.form(f"vis_{part}_{sunday}"):
             v_new = st.number_input("방문자 수", min_value=0, value=visitors, step=1)
