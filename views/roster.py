@@ -12,10 +12,24 @@ is_admin = st.session_state.get("role") == "admin"
 PARTS = ["1부", "2부"]
 GRADES = [("조이", "5세", "#fff6c9"), ("해피", "6세", "#e3e8fb"), ("홀리", "7세", "#f6dff0")]
 GRADE_ORDER = {"조이": 0, "해피": 1, "홀리": 2, "새싹": 3, "스탭": 4}
-NONE_CLASS = 0  # 새싹반·스탭용 번호
+NONE_CLASS = 0
 WD = "월화수목금토일"
+REASONS = [
+    "연락안됨",
+    "병결(본인 혹은 가족)",
+    "출근, 출장",
+    "가족모임(명절, 여행 등)",
+    "경조사(장례식, 결혼식)",
+    "이사",
+    "외국",
+    "출산",
+    "타교회",
+    "1회성",
+    "기타 개인사정",
+    "대예배",
+]
+NO_REASON = "(사유 없음)"
 
-# 명단이 비어 있어도 항상 보여줄 기본 반 수 (이미지 기준)
 DEFAULT_CLASSES = {
     "1부": {"조이": 4, "해피": 4, "홀리": 4},
     "2부": {"조이": 5, "해피": 3, "홀리": 5},
@@ -26,7 +40,7 @@ st.markdown("""
 .rs-wrap {overflow-x: auto; margin: .4rem 0 1rem;}
 .rs {border-collapse: collapse; width: 100%; min-width: 680px; table-layout: fixed;
      font-size: .85rem; color: #1b3a5c;}
-.rs th, .rs td {border: 1px solid #8a97a8; padding: .35rem .2rem; text-align: center;
+.rs th, .rs td {border: 1px solid #8a97a8; padding: .3rem .2rem; text-align: center;
                 height: 2.1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
 .rs th {background: #f1f7fd; font-weight: 700;}
 .rs th.ttl {font-size: 1.1rem; background: #fff; padding: .5rem;}
@@ -34,8 +48,11 @@ st.markdown("""
 .rs td.no {font-weight: 700; width: 2rem;}
 .rs td.tch {font-weight: 700; background: rgba(255,255,255,.55); white-space: normal; line-height: 1.25; width: 5rem;}
 .rs td.nm.on {background: #b2f2bb; font-weight: 700;}
+.rs td.nm.off {background: #ffe3e3;}
+.rs td.nm small {display: block; font-size: .68rem; color: #c92a2a; line-height: 1.1;
+                 overflow: hidden; text-overflow: ellipsis;}
 .rs td.num {font-weight: 700; width: 2.8rem;}
-.rs td.sub, .rs td.tot {background: #eef1f5; font-weight: 700;}
+.rs td.sub {background: #eef1f5; font-weight: 700;}
 .rs td.lab {font-weight: 700; background: #fafbfc;}
 .rs td.big {background: #e9ecef; font-weight: 700; font-size: 1rem;}
 </style>
@@ -72,15 +89,23 @@ if mem.empty:
 if cls.empty:
     cls = pd.DataFrame(columns=["id", "part", "grade", "class_no", "teachers"])
 if att.empty:
-    att = pd.DataFrame(columns=["member_id", "sunday_date", "present"])
+    att = pd.DataFrame(columns=["member_id", "sunday_date", "present", "reason"])
 else:
     att["sunday_date"] = pd.to_datetime(att["sunday_date"]).dt.date
+    if "reason" not in att.columns:
+        att["reason"] = None
 
 mem = mem[mem["part"] == part].copy()
 mem["class_no"] = mem["class_no"].fillna(0).astype(int)
 cls = cls[cls["part"] == part].copy()
 cls["class_no"] = cls["class_no"].fillna(0).astype(int)
-present_ids = set(att[(att["sunday_date"] == sunday) & (att["present"] == True)]["member_id"])
+
+today_att = att[att["sunday_date"] == sunday]
+status = {}  # member_id -> (present, reason)
+for _, a in today_att.iterrows():
+    status[a["member_id"]] = (bool(a["present"]),
+                              a["reason"] if isinstance(a.get("reason"), str) else "")
+present_ids = {k for k, v in status.items() if v[0]}
 
 visitors = 0
 if not vis.empty:
@@ -120,8 +145,17 @@ def build_table():
         out = ""
         for i in range(ncols):
             if i < len(names):
-                on = " on" if ids[i] in present_ids else ""
-                out += f"<td class='nm{on}'>{html.escape(str(names[i]))}</td>"
+                st_ = status.get(ids[i])
+                cls_ = ""
+                extra = ""
+                if st_ is not None:
+                    if st_[0]:
+                        cls_ = " on"
+                    else:
+                        cls_ = " off"
+                        if st_[1]:
+                            extra = f"<small>{html.escape(st_[1])}</small>"
+                out += f"<td class='nm{cls_}'>{html.escape(str(names[i]))}{extra}</td>"
             else:
                 out += "<td class='nm'></td>"
         return out
@@ -178,7 +212,6 @@ def build_table():
     return f"<div class='rs-wrap'><table class='rs'>{''.join(rows)}</table></div>"
 
 
-# 탭 대신 선택형 메뉴: 저장 후에도 보던 화면이 유지됨
 VIEWS = ["출석부"] + (["출석 체크", "명단 관리"] if is_admin else [])
 if st.session_state.get("rs_view") not in VIEWS:
     st.session_state["rs_view"] = VIEWS[0]
@@ -202,7 +235,7 @@ if view == "출석부":
     if mem.empty:
         st.info("등록된 명단이 없습니다." + (" '명단 관리'에서 이름을 붙여넣어 등록하세요." if is_admin else ""))
     st.markdown(build_table(), unsafe_allow_html=True)
-    st.caption("초록색으로 표시된 이름이 출석한 사람입니다.")
+    st.caption("초록 = 출석 · 연한 빨강 = 결석(사유 표시) · 흰색 = 아직 확인 안 됨")
 
 # ================================================================ 출석 체크
 elif view == "출석 체크" and is_admin:
@@ -211,19 +244,59 @@ elif view == "출석 체크" and is_admin:
     if not combos:
         st.info("먼저 '명단 관리'에서 명단을 등록해 주세요.")
     else:
-        sel = st.selectbox("반 선택", combos, format_func=opt_label, key=f"att_sel_{part}")
+        sel_key = f"att_sel_{part}"
+        pend = f"att_next_{part}"
+        if pend in st.session_state:
+            st.session_state[sel_key] = st.session_state.pop(pend)
+        if st.session_state.get(sel_key) not in combos:
+            st.session_state[sel_key] = combos[0]
+        st.selectbox("반 선택", combos, format_func=opt_label, key=sel_key)
+        sel = st.session_state[sel_key]
         g, no = sel
         kids = members_of(g, no)
-        names = kids["name"].tolist()
-        default = [r["name"] for _, r in kids.iterrows() if r["id"] in present_ids]
-        with st.form(f"att_{part}_{sunday}_{g}_{no}"):
-            chosen = st.multiselect("출석한 사람 (선택하지 않은 사람은 결석)", names, default=default)
-            saved = st.form_submit_button("출석 저장", type="primary", use_container_width=True)
-        if saved:
-            rows_ = [{"member_id": r["id"], "sunday_date": sunday.isoformat(),
-                      "present": r["name"] in chosen} for _, r in kids.iterrows()]
-            upsert("roster_attendance", rows_, "member_id,sunday_date")
-            st.session_state["flash"] = f"{opt_label(sel)} 출석을 저장했습니다. ({len(chosen)}/{len(names)})"
+
+        st.caption("출석에 체크하고, 결석이면 체크를 풀고 사유를 고르세요. 마지막에 **저장**을 누르면 반영됩니다.")
+        fk = f"{part}_{sunday}_{g}_{no}"
+
+        all_present = st.button("✅ 전원 출석으로 채우기", key=f"all_{fk}", use_container_width=True)
+        for _, k in kids.iterrows():
+            cur_st = status.get(k["id"])
+            wk, rk = f"pr_{fk}_{k['id']}", f"rs_{fk}_{k['id']}"
+            if all_present:
+                st.session_state[wk] = True
+                st.session_state[rk] = NO_REASON
+            if wk not in st.session_state:
+                st.session_state[wk] = bool(cur_st[0]) if cur_st else False
+            if rk not in st.session_state:
+                st.session_state[rk] = (cur_st[1] if cur_st and cur_st[1] in REASONS else NO_REASON)
+
+        with st.form(f"att_{fk}"):
+            for _, k in kids.iterrows():
+                wk, rk = f"pr_{fk}_{k['id']}", f"rs_{fk}_{k['id']}"
+                a, b = st.columns([3, 2])
+                a.checkbox(str(k["name"]), key=wk)
+                b.selectbox("결석 사유", [NO_REASON] + REASONS, key=rk,
+                            label_visibility="collapsed")
+            b1, b2 = st.columns(2)
+            saved = b1.form_submit_button("저장", type="primary", use_container_width=True)
+            saved_next = b2.form_submit_button("저장 후 다음 반", use_container_width=True)
+
+        if saved or saved_next:
+            rows_ = []
+            n_pr = 0
+            for _, k in kids.iterrows():
+                present = bool(st.session_state.get(f"pr_{fk}_{k['id']}"))
+                reason = st.session_state.get(f"rs_{fk}_{k['id']}", NO_REASON)
+                n_pr += 1 if present else 0
+                rows_.append({"member_id": k["id"], "sunday_date": sunday.isoformat(),
+                              "present": present,
+                              "reason": None if (present or reason == NO_REASON) else reason})
+            if rows_:
+                upsert("roster_attendance", rows_, "member_id,sunday_date")
+            st.session_state["flash"] = f"{opt_label(sel)} 저장 완료 (출석 {n_pr}/{len(kids)})"
+            if saved_next:
+                i = combos.index(sel)
+                st.session_state[pend] = combos[(i + 1) % len(combos)]
             st.rerun()
 
     st.divider()
@@ -245,7 +318,6 @@ elif view == "명단 관리" and is_admin:
     options = ([(g_, n_) for g_, _, _ in GRADES for n_ in range(1, max_no[g_] + 1)]
                + [("새싹", NONE_CLASS), ("스탭", NONE_CLASS)])
 
-    # 저장 후에도 선택한 반을 유지, '다음 반' 이동은 선택칸을 그리기 전에 적용
     sel_key = f"edit_sel_{part}"
     pending_key = f"edit_next_{part}"
     if pending_key in st.session_state:
@@ -261,7 +333,6 @@ elif view == "명단 관리" and is_admin:
     cur_teacher = mt.iloc[0]["teachers"] if (not mt.empty and isinstance(mt.iloc[0]["teachers"], str)) else ""
     cur_names = "\n".join(cur["name"].tolist())
 
-    # 반마다 입력칸 key가 달라서, 반을 바꾸면 그 반의 저장된 내용으로 새로 채워짐
     fk = f"{part}_{g2}_{no2}"
     with st.form(f"edit_form_{fk}"):
         teachers_txt = st.text_area("담임샘 / 담당 (줄바꿈으로 구분)", value=cur_teacher,
