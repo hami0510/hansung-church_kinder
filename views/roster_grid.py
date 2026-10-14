@@ -43,6 +43,13 @@ st.markdown("""
 .rg-title {font-size: 1.05rem; font-weight: 800; color: #1b3a5c; margin: .2rem 0 .4rem;}
 .rg-legend {display: flex; gap: .5rem; flex-wrap: wrap; font-size: .78rem; margin: .4rem 0;}
 .rg-legend span {padding: .1rem .55rem; border-radius: 999px; font-weight: 700;}
+@media (max-width: 640px) {
+  .sumcards {gap: .3rem; flex-wrap: nowrap;}
+  .sumcard {flex: 1 1 0; padding: .35rem .2rem; border-radius: 10px; min-width: 0;}
+  .sumcard .t {font-size: .62rem;}
+  .sumcard .v {font-size: 1.05rem;}
+  .sumcard .v small {font-size: .62rem;}
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -381,26 +388,31 @@ st.markdown(f"<div class='rg-title'>{sunday.year}년 유치{p}부 · {sunday.mon
 
 # ---------------------------------------------------------------- 표 스타일
 FS = "13px" if mobile else "12px"
+row_h, head_h = (38, 32) if mobile else (32, 34)
+LH = f"{row_h - 4}px"
+
 base_style = JsCode(
     "function(p){return {backgroundColor: p.data.bg || '#fff', fontWeight: '700', color: '#1b3a5c', "
-    "textAlign: 'center', fontSize: '%s', padding: '0 1px'};}" % FS)
+    "textAlign: 'center', fontSize: '%s', padding: '0 1px', lineHeight: '%s', whiteSpace: 'nowrap'};}"
+    % (FS, LH))
 lab_style = JsCode(
     "function(p){return {backgroundColor: p.data.lbg || '#fff', fontWeight: '800', color: '#1b3a5c', "
-    "textAlign: 'center', fontSize: '%s', padding: '0 1px', lineHeight: '15px', whiteSpace: 'normal', "
-    "borderLeft: '5px solid ' + (p.data.bar || 'transparent')};}" % FS)
+    "textAlign: 'center', fontSize: '%s', padding: '0 1px', lineHeight: '%s', whiteSpace: 'nowrap', "
+    "borderLeft: '5px solid ' + (p.data.bar || 'transparent')};}" % (FS, LH))
 
 
 def cell_style(flag_field, bold=False):
     return JsCode(
         "function(p){var s=p.data.%s; var b={textAlign:'center',fontSize:'%s',padding:'0 1px',"
-        "cursor:'pointer',lineHeight:'15px',whiteSpace:'normal',wordBreak:'break-all',color:'#1b3a5c'%s};"
+        "cursor:'pointer',lineHeight:'%s',whiteSpace:'nowrap',overflow:'hidden',color:'#1b3a5c'%s};"
         "if(s==='on'){b.backgroundColor='#b2f2bb';b.color='#14532d';b.fontWeight='700';"
         "b.boxShadow='inset 0 0 0 2px #fff';}"
         "else if(s==='off'){b.backgroundColor='#ffd9d9';b.color='#b91c1c';b.fontWeight='700';"
         "b.boxShadow='inset 0 0 0 2px #fff';}"
         "else if(p.data.nbg){b.backgroundColor=p.data.nbg;}"
         "else if(p.data.tb==='1'||%s){b.backgroundColor=p.data.bg;b.fontWeight='700';}"
-        "return b;}" % (flag_field, FS, ",fontWeight:'700'" if bold else "", "true" if bold else "false"))
+        "return b;}" % (flag_field, FS, LH, ",fontWeight:'700'" if bold else "",
+                        "true" if bold else "false"))
 
 
 def name_fmt(flag_field):
@@ -420,7 +432,6 @@ if mobile:
         col_defs.append({"field": f"s{n}", "hide": True})
     col_defs.append({"field": "cnt", "headerName": "출/재", "width": 48, "minWidth": 40,
                      "cellStyle": base_style, "sortable": False})
-    row_h, head_h = 38, 32
 else:
     col_defs = [
         {"field": "age", "headerName": "나이", "width": 62, "minWidth": 46,
@@ -446,7 +457,6 @@ else:
         {"field": "pr", "headerName": "출석", "width": 42, "minWidth": 32,
          "cellStyle": base_style, "sortable": False},
     ]
-    row_h, head_h = 32, 34
 
 col_defs += [
     {"field": "bg", "hide": True},
@@ -461,6 +471,7 @@ grid_options = {
     "columnDefs": col_defs,
     "rowHeight": row_h,
     "headerHeight": head_h,
+    "domLayout": "autoHeight",
     "suppressMovableColumns": True,
     "suppressCellFocus": True,
     "defaultColDef": {"resizable": False},
@@ -485,7 +496,7 @@ ver = st.session_state.get("rg_ver", 0)
 resp = AgGrid(
     df, gridOptions=grid_options, allow_unsafe_jscode=True, custom_css=grid_css,
     update_mode=GridUpdateMode.SELECTION_CHANGED | GridUpdateMode.VALUE_CHANGED,
-    height=head_h + row_h * len(df) + 8, fit_columns_on_grid_load=True,
+    height=head_h + row_h * len(df) + 12, fit_columns_on_grid_load=True,
     key=f"rg_grid_{part}_{sunday}_{ver}_{int(bool(mobile))}")
 
 st.markdown(
