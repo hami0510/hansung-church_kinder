@@ -1,6 +1,5 @@
 import pandas as pd
 import streamlit as st
-from utils.auth import can_manage
 from utils.db import fetch, insert, update, delete
 
 st.title("📢 공지사항")
@@ -8,7 +7,8 @@ st.title("📢 공지사항")
 if "flash" in st.session_state:
     st.success(st.session_state.pop("flash"))
 
-manage = can_manage()
+# 공지 작성·수정·삭제·고정은 관리자 로그인한 사람만
+manage = st.session_state.get("role") == "admin"
 
 st.markdown("""
 <style>
@@ -18,7 +18,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-tab_list, tab_add = st.tabs(["공지 보기", "작성"]) if manage else (st.tabs(["공지 보기"])[0], None)
+if manage:
+    tab_list, tab_add = st.tabs(["공지 보기", "작성"])
+else:
+    tab_list = st.tabs(["공지 보기"])[0]
+    tab_add = None
+    st.caption("🔒 공지 작성·삭제는 관리자 로그인 후 가능합니다. (왼쪽 메뉴 아래 '관리자 로그인')")
 
 
 def to_when(v):
@@ -55,7 +60,7 @@ with tab_list:
                     content = r["content"] if isinstance(r.get("content"), str) else ""
                     with st.expander(f"{mark} {title}  ·  {to_when(r['created_at'])}"):
                         edit_key = f"editing_{nid}"
-                        if not st.session_state.get(edit_key):
+                        if not (manage and st.session_state.get(edit_key)):
                             if content:
                                 st.markdown(content.replace("\n", "  \n"))
                             else:
@@ -100,8 +105,8 @@ with tab_list:
                                 st.session_state.pop(edit_key, None)
                                 st.rerun()
 
-# ---------------------------------------------------------------- 작성
-if manage:
+# ---------------------------------------------------------------- 작성 (관리자만)
+if manage and tab_add is not None:
     with tab_add:
         with st.form("add_notice", clear_on_submit=True):
             title = st.text_input("제목 *")
