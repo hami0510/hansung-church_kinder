@@ -549,8 +549,6 @@ if mobile:
         col_defs.append({"field": f"c{n}", "headerName": "이름" if n == 1 else "", "width": 62,
                          "minWidth": 50, "cellStyle": cell_style(f"s{n}"),
                          "valueFormatter": name_fmt(f"s{n}"), "sortable": False})
-        col_defs.append({"field": f"i{n}", "hide": True})
-        col_defs.append({"field": f"s{n}", "hide": True})
     col_defs.append({"field": "cnt", "headerName": ("예/재" if is_plan else "출/재"),
                      "width": 48, "minWidth": 40, "cellStyle": base_style, "sortable": False})
 else:
@@ -564,14 +562,10 @@ else:
         col_defs.append({"field": f"t{n}", "headerName": "담임샘" if n == 1 else "", "width": 56,
                          "minWidth": 42, "cellStyle": cell_style(f"ts{n}", bold=True),
                          "valueFormatter": name_fmt(f"ts{n}"), "sortable": False})
-        col_defs.append({"field": f"ti{n}", "hide": True})
-        col_defs.append({"field": f"ts{n}", "hide": True})
     for n in range(1, NC + 1):
         col_defs.append({"field": f"c{n}", "headerName": str(n), "width": 54, "minWidth": 34,
                          "cellStyle": cell_style(f"s{n}"),
                          "valueFormatter": name_fmt(f"s{n}"), "sortable": False})
-        col_defs.append({"field": f"i{n}", "hide": True})
-        col_defs.append({"field": f"s{n}", "hide": True})
     col_defs += [
         {"field": "en", "headerName": "재적", "width": 42, "minWidth": 32,
          "cellStyle": base_style, "sortable": False},
@@ -579,14 +573,7 @@ else:
          "cellStyle": base_style, "sortable": False},
     ]
 
-col_defs += [
-    {"field": "bg", "hide": True},
-    {"field": "lbg", "hide": True},
-    {"field": "nbg", "hide": True},
-    {"field": "tb", "hide": True},
-    {"field": "bar", "hide": True},
-    {"field": "pick", "hide": True},
-]
+col_defs.append({"field": "pick", "hide": True})
 
 if PERF_MODE:
     # AgGrid iframe의 첫 행이 실제로 그려진 시점을 서버로 돌려보낸다.
