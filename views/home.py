@@ -18,28 +18,26 @@ except Exception:
 SHOW_HOLIDAYS = True
 RENAME = {"기독탄신일": "성탄절", "신정연휴": "신정"}
 
-# 이 화면 전용 여백 조정
+# 이 화면 전용 스타일
 st.markdown("""
 <style>
-.hero {margin-bottom: 1.4rem !important;}
+.hero {margin-bottom: 1.2rem !important;}
 .hero-sub {opacity: .75;}
-.hsec {font-size: .85rem; font-weight: 700; color: #6b7c93; margin: 0 0 .5rem .2rem;}
-.nbox {border: 1px solid rgba(128,128,128,.22); border-radius: 16px; padding: .2rem .6rem;
-       background: rgba(120,180,240,.05); margin-bottom: 1.6rem;}
-.nrow {display: flex; align-items: center; gap: .6rem; padding: .85rem .3rem; line-height: 1.4;}
+.hsec {font-size: .85rem; font-weight: 700; color: #6b7c93; margin: 0 0 .4rem .2rem;}
+.nrow {display: flex; align-items: center; gap: .6rem; padding: .8rem .3rem;
+       height: 3rem; box-sizing: border-box; border-bottom: 1px solid rgba(128,128,128,.15);}
+.nrow.last {border-bottom: none;}
 .nrow .nt {flex: 1; min-width: 0; text-align: left; font-weight: 400; color: #1b3a5c;
            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
 .nrow.pin .nt {font-weight: 700;}
 .nrow .nd {flex: 0 0 auto; font-size: .78rem; color: #9aa6b5;}
-.nwrap {border-bottom: 1px solid rgba(128,128,128,.15);}
-.nwrap:last-child {border-bottom: none;}
 .nwrap:hover .nrow {background: rgba(74,159,224,.08); border-radius: 10px;}
-.st-key-nlist [data-testid="stVerticalBlock"] {gap: 0;}
-.st-key-nlist [data-testid="stElementContainer"] {margin: 0;}
-.st-key-nlist [data-testid="stElementContainer"]:has(.stButton) {
-  position: relative; margin-top: -3.1rem; height: 3.1rem; z-index: 2;}
-.st-key-nlist .stButton, .st-key-nlist .stButton > button {width: 100%; height: 3.1rem;}
-.st-key-nlist .stButton > button {opacity: 0; cursor: pointer; border: none; padding: 0;}
+.st-key-nbox [data-testid="stVerticalBlock"] {gap: 0;}
+.st-key-nbox [data-testid="stElementContainer"] {margin: 0;}
+.st-key-nbox [data-testid="stElementContainer"]:has(.stButton) {
+  position: relative; margin-top: -3rem; height: 3rem; z-index: 2;}
+.st-key-nbox .stButton, .st-key-nbox .stButton > button {width: 100%; height: 3rem;}
+.st-key-nbox .stButton > button {opacity: 0; cursor: pointer; border: none; padding: 0;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -94,9 +92,9 @@ if not nt.empty:
     show = pd.concat([pinned, rest])
 
     st.markdown("<div class='hsec'>📢 공지</div>", unsafe_allow_html=True)
-    with st.container(key="nlist"):
-        st.markdown("<div class='nbox'>", unsafe_allow_html=True)
-        for _, r in show.iterrows():
+    with st.container(border=True, key="nbox"):
+        n_total = len(show)
+        for i, (_, r) in enumerate(show.iterrows()):
             try:
                 when = pd.to_datetime(r["created_at"], utc=True).tz_convert("Asia/Seoul")
                 when_s = f"{when:%Y.%m.%d}"
@@ -104,15 +102,15 @@ if not nt.empty:
                 when_s = ""
             mark = "📌" if r["_pin"] else "📢"
             content = r["content"] if isinstance(r.get("content"), str) else ""
+            cls = ("pin " if r["_pin"] else "") + ("last" if i == n_total - 1 else "")
             st.markdown(
-                f"<div class='nwrap'><div class='nrow{' pin' if r['_pin'] else ''}'>"
+                f"<div class='nwrap'><div class='nrow {cls}'>"
                 f"<span class='nt'>{mark} {html.escape(str(r['title']))}</span>"
                 f"<span class='nd'>{html.escape(when_s)}</span></div></div>",
                 unsafe_allow_html=True)
             if st.button(" ", key=f"notice_{r['id']}", use_container_width=True):
                 show_notice(str(r["title"]), when_s, content)
-        st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("<div style='height:.4rem'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:.6rem'></div>", unsafe_allow_html=True)
 
 # ---------- 달력용 데이터 ----------
 cal_events = []
