@@ -19,11 +19,13 @@ st.markdown("""
 .dayband .badge {background: #4a9fe0; color: #fff; border-radius: 999px; padding: 0 .55rem;
                  font-size: .72rem; font-weight: 700;}
 .evlegend {font-size: .78rem; color: #6b7c93; margin: .2rem 0 .4rem;}
-.st-key-evlist [data-testid="stVerticalBlock"] {gap: 0;}
+.st-key-evlist [data-testid="stVerticalBlock"] {gap: 0 !important;}
+.st-key-evlist [data-testid="stElementContainer"] {margin: 0 !important;}
 .st-key-evlist .stButton > button {
-  width: 100%; min-height: 2.5rem; border: none !important; background: transparent !important;
+  width: 100%; min-height: 2.2rem; height: 2.2rem; line-height: 2.2rem;
+  border: none !important; background: transparent !important;
   box-shadow: none !important; border-bottom: 1px solid #edf1f6 !important; border-radius: 0 !important;
-  justify-content: flex-start !important; text-align: left !important; padding: .2rem .6rem;
+  justify-content: flex-start !important; text-align: left !important; padding: 0 .6rem;
   font-weight: 500; color: #1b3a5c;}
 .st-key-evlist .stButton > button > div,
 .st-key-evlist .stButton > button p {
