@@ -18,7 +18,7 @@ except Exception:
 SHOW_HOLIDAYS = True
 RENAME = {"기독탄신일": "성탄절", "신정연휴": "신정"}
 # 홈에 보여줄 공지 개수 (나머지는 공지사항 메뉴에서)
-NOTICE_SHOW = 3
+NOTICE_SHOW = 5
 
 hero()
 
@@ -56,7 +56,7 @@ if not ev.empty:
 stats_line([("📅", "이번 주 일정", f"{n_events}건")])
 
 
-# ---------- 공지 (제목만 → 누르면 팝업) ----------
+# ---------- 공지 (제목만, 왼쪽 정렬 → 누르면 팝업) ----------
 @st.dialog("📢 공지")
 def show_notice(title: str, when: str, content: str):
     st.markdown(f"### {title}")
@@ -76,13 +76,20 @@ if not nt.empty:
     st.subheader("📢 공지")
     st.markdown("""
     <style>
-    .st-key-nlist .stButton > button {
-      justify-content: flex-start; text-align: left; border: none !important;
-      border-bottom: 1px solid rgba(128,128,128,.2) !important; border-radius: 0 !important;
-      background: transparent !important; padding: .55rem .3rem; font-weight: 400;}
-    .st-key-nlist .stButton > button:hover {background: rgba(74,159,224,.10) !important;}
-    .st-key-nlist .stButton > button p {text-align: left; width: 100%; margin: 0;}
+    .nrow {display: flex; align-items: center; gap: .6rem; padding: .55rem .35rem;
+           border-bottom: 1px solid rgba(128,128,128,.2); line-height: 1.35;}
+    .nrow .nt {flex: 1; min-width: 0; text-align: left; font-weight: 700; color: #1b3a5c;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+    .nrow .nd {flex: 0 0 auto; font-size: .82rem; color: #8a97a8;}
+    .nwrap {position: relative;}
+    .nwrap:hover .nrow {background: rgba(74,159,224,.10); border-radius: 8px;}
     .st-key-nlist [data-testid="stVerticalBlock"] {gap: 0;}
+    .st-key-nlist [data-testid="stElementContainer"] {margin: 0;}
+    .st-key-nlist .nwrap + [data-testid="stElementContainer"],
+    .st-key-nlist [data-testid="stElementContainer"]:has(.stButton) {
+      position: relative; margin-top: -2.55rem; height: 2.55rem; z-index: 2;}
+    .st-key-nlist .stButton, .st-key-nlist .stButton > button {width: 100%; height: 2.55rem;}
+    .st-key-nlist .stButton > button {opacity: 0; cursor: pointer; border: none; padding: 0;}
     </style>
     """, unsafe_allow_html=True)
     with st.container(key="nlist"):
@@ -94,8 +101,12 @@ if not nt.empty:
                 when_s = ""
             mark = "📌" if r["_pin"] else "📢"
             content = r["content"] if isinstance(r.get("content"), str) else ""
-            if st.button(f"{mark}  {r['title']}   ·   {when_s}", key=f"notice_{r['id']}",
-                         use_container_width=True):
+            st.markdown(
+                f"<div class='nwrap'><div class='nrow'>"
+                f"<span class='nt'>{mark} {html.escape(str(r['title']))}</span>"
+                f"<span class='nd'>{html.escape(when_s)}</span></div></div>",
+                unsafe_allow_html=True)
+            if st.button(" ", key=f"notice_{r['id']}", use_container_width=True):
                 show_notice(str(r["title"]), when_s, content)
     if len(nt) > NOTICE_SHOW:
         st.caption(f"공지 {len(nt)}건 중 {NOTICE_SHOW}건만 표시됩니다. 전체는 왼쪽 '공지사항' 메뉴에서 볼 수 있습니다.")
