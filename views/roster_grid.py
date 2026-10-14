@@ -613,8 +613,10 @@ if PERF_MODE:
         "function(e){"
         "if(window.__rgPerfReported)return;"
         "window.__rgPerfReported=true;"
+        "var renderedAt=String(Math.round(performance.now()));"
+        "setTimeout(function(){"
         "var row=e.api.getDisplayedRowAtIndex(0);"
-        "if(row){row.setDataValue('__perf_ms',String(Math.round(performance.now())));}}")
+        "if(row){row.setDataValue('__perf_ms',renderedAt);}},750);}")
 
 grid_css = {
     ".ag-header": {"background-color": "#d6ecff !important", "border-bottom": "2px solid #9ccbf0 !important"},
