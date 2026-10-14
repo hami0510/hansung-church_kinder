@@ -24,19 +24,25 @@ st.markdown("""
 .hero {margin-bottom: 1.2rem !important;}
 .hero-sub {opacity: .75;}
 .hsec {font-size: .85rem; font-weight: 700; color: #6b7c93; margin: 0 0 .4rem .2rem;}
-.nrow {display: flex; align-items: center; gap: .6rem; padding: .8rem .3rem;
-       height: 3rem; box-sizing: border-box; border-bottom: 1px solid rgba(128,128,128,.15);}
+
+/* 공지 상자: 배너·달력과 같은 하늘색 톤, 높이는 줄 수에 맞춰 자동 */
+.st-key-nbox {border: 1px solid #d5e6f7 !important; border-radius: 16px !important;
+              background: #f6faff; padding: .25rem .5rem !important; margin-bottom: 1.2rem;}
+.st-key-nbox [data-testid="stVerticalBlock"] {gap: 0;}
+.st-key-nbox [data-testid="stElementContainer"] {margin: 0;}
+
+.nrow {display: flex; align-items: center; gap: .6rem; padding: 0 .5rem;
+       height: 2.8rem; box-sizing: border-box; border-bottom: 1px solid rgba(100,150,200,.18);}
 .nrow.last {border-bottom: none;}
 .nrow .nt {flex: 1; min-width: 0; text-align: left; font-weight: 400; color: #1b3a5c;
            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
 .nrow.pin .nt {font-weight: 700;}
-.nrow .nd {flex: 0 0 auto; font-size: .78rem; color: #9aa6b5;}
-.nwrap:hover .nrow {background: rgba(74,159,224,.08); border-radius: 10px;}
-.st-key-nbox [data-testid="stVerticalBlock"] {gap: 0;}
-.st-key-nbox [data-testid="stElementContainer"] {margin: 0;}
+.nrow .nd {flex: 0 0 auto; font-size: .78rem; color: #8fa0b5;}
+.nwrap:hover .nrow {background: rgba(74,159,224,.10); border-radius: 10px; border-bottom-color: transparent;}
+
 .st-key-nbox [data-testid="stElementContainer"]:has(.stButton) {
-  position: relative; margin-top: -3rem; height: 3rem; z-index: 2;}
-.st-key-nbox .stButton, .st-key-nbox .stButton > button {width: 100%; height: 3rem;}
+  position: relative; margin-top: -2.8rem; height: 2.8rem; z-index: 2;}
+.st-key-nbox .stButton, .st-key-nbox .stButton > button {width: 100%; height: 2.8rem;}
 .st-key-nbox .stButton > button {opacity: 0; cursor: pointer; border: none; padding: 0;}
 </style>
 """, unsafe_allow_html=True)
@@ -110,7 +116,6 @@ if not nt.empty:
                 unsafe_allow_html=True)
             if st.button(" ", key=f"notice_{r['id']}", use_container_width=True):
                 show_notice(str(r["title"]), when_s, content)
-    st.markdown("<div style='height:.6rem'></div>", unsafe_allow_html=True)
 
 # ---------- 달력용 데이터 ----------
 cal_events = []
