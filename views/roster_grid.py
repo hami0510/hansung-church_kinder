@@ -607,6 +607,10 @@ grid_options = {
         "function(e){var f=e.colDef.field||'';var m=/^(c|t)([0-9]+)$/.exec(f);if(!m)return;"
         "var id=e.data[(m[1]==='c'?'i':'ti')+m[2]];"
         "e.node.setDataValue('pick', id ? (id+'|'+e.value+'|'+Date.now()) : '');}"),
+    # 재사용된 Grid는 새 열 정의를 받은 뒤 자동 너비 맞춤이 다시 실행되지 않는다.
+    "onRowDataUpdated": JsCode(
+        "function(e){requestAnimationFrame(function(){requestAnimationFrame(function(){"
+        "e.api.sizeColumnsToFit();});});}"),
 }
 
 if PERF_MODE:
