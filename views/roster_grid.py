@@ -2,6 +2,7 @@ from time import perf_counter
 
 PAGE_STARTED_AT = perf_counter()
 
+import json
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 import pandas as pd
@@ -589,9 +590,9 @@ col_defs += [
 ]
 
 if PERF_MODE:
-    # AgGrid iframe의 첫 행이 실제로 그려진 시점을 서버로 돌려보낸다.
-    df["__perf_ms"] = ""
-    col_defs.append({"field": "__perf_ms", "hide": True})
+    # 브라우저 안의 Grid 생명주기 시점을 한 번에 서버로 돌려보낸다.
+    df["__perf_trace"] = ""
+    col_defs.append({"field": "__perf_trace", "hide": True})
 
 grid_options = {
     "columnDefs": col_defs,
@@ -609,14 +610,29 @@ grid_options = {
 }
 
 if PERF_MODE:
+    grid_options["onGridReady"] = JsCode(
+        "function(e){"
+        "var t=window.__rgPerfTrace||(window.__rgPerfTrace={});"
+        "t.gridReady=Math.round(performance.now());}")
+    grid_options["onColumnResized"] = JsCode(
+        "function(e){"
+        "var t=window.__rgPerfTrace||(window.__rgPerfTrace={});"
+        "var now=Math.round(performance.now());"
+        "if(t.firstColumnResize==null){t.firstColumnResize=now;}"
+        "t.lastColumnResize=now;"
+        "if(e.finished){requestAnimationFrame(function(){requestAnimationFrame(function(){"
+        "t.afterColumnPaint=Math.round(performance.now());});});}}")
     grid_options["onFirstDataRendered"] = JsCode(
         "function(e){"
         "if(window.__rgPerfReported)return;"
         "window.__rgPerfReported=true;"
-        "var renderedAt=String(Math.round(performance.now()));"
+        "var t=window.__rgPerfTrace||(window.__rgPerfTrace={});"
+        "t.firstData=Math.round(performance.now());"
+        "requestAnimationFrame(function(){requestAnimationFrame(function(){"
+        "t.afterDataPaint=Math.round(performance.now());});});"
         "setTimeout(function(){"
         "var row=e.api.getDisplayedRowAtIndex(0);"
-        "if(row){row.setDataValue('__perf_ms',renderedAt);}},750);}")
+        "if(row){row.setDataValue('__perf_trace',JSON.stringify(t));}},750);}")
 
 grid_css = {
     ".ag-header": {"background-color": "#d6ecff !important", "border-bottom": "2px solid #9ccbf0 !important"},
@@ -662,11 +678,14 @@ if PERF_MODE:
         }
     snapshot = snapshots[perf_context]
     for record in records or []:
-        value = record.get("__perf_ms") if hasattr(record, "get") else None
+        value = record.get("__perf_trace") if hasattr(record, "get") else None
         if value not in (None, ""):
             try:
-                snapshot["browser_grid"] = float(value) / 1000
-            except (TypeError, ValueError):
+                trace = json.loads(value)
+                if isinstance(trace, dict):
+                    snapshot["browser_trace"] = trace
+                    snapshot["browser_grid"] = float(trace["firstData"]) / 1000
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                 pass
             break
 
@@ -701,6 +720,43 @@ if PERF_MODE:
         + " / ".join(f"{name} {seconds:.3f}초" for name, seconds in snapshot["db_parts"].items())
         + f" · 서버 실행→Grid 전달 {snapshot['server_before_grid']:.3f}초"
         + f" · Grid 컴포넌트 호출 {snapshot['grid_call']:.3f}초")
+    trace = snapshot.get("browser_trace", {})
+    if trace:
+        grid_ready = trace.get("gridReady")
+        first_data = trace.get("firstData")
+        after_data_paint = trace.get("afterDataPaint")
+        first_column_resize = trace.get("firstColumnResize")
+        last_column_resize = trace.get("lastColumnResize")
+        after_column_paint = trace.get("afterColumnPaint")
+
+        def elapsed(end, start=0):
+            if not isinstance(end, (int, float)) or not isinstance(start, (int, float)):
+                return None
+            return max(0.0, (end - start) / 1000)
+
+        browser_parts = [
+            ("iframe→Grid 준비", elapsed(grid_ready)),
+            ("Grid 준비→첫 데이터", elapsed(first_data, grid_ready)),
+            ("첫 데이터→화면 반영", elapsed(after_data_paint, first_data)),
+            ("열 너비 이벤트 구간", elapsed(last_column_resize, first_column_resize)),
+        ]
+        cols = st.columns(4)
+        for col, (label, seconds) in zip(cols, browser_parts):
+            col.metric(label, f"{seconds:.3f}초" if seconds is not None else "미측정")
+
+        milestones = [
+            ("Grid 준비", grid_ready),
+            ("첫 데이터", first_data),
+            ("데이터 화면 반영", after_data_paint),
+            ("마지막 열 너비 변경", last_column_resize),
+            ("열 너비 화면 반영", after_column_paint),
+        ]
+        st.caption(
+            "브라우저 시점(iframe 시작 기준) · "
+            + " / ".join(
+                f"{label} {value / 1000:.3f}초"
+                for label, value in milestones if isinstance(value, (int, float))))
+        st.caption("브라우저 세부 시간은 이벤트와 다음 화면 그리기 시점을 이용한 근사값입니다.")
     st.caption("다시 측정하려면 URL의 perf 숫자를 바꾸세요. 예: ?perf=1 → ?perf=2")
 
 name_of = {r["id"]: str(r["name"]) for _, r in mem.iterrows()}
