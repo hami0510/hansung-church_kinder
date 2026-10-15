@@ -1,10 +1,4 @@
-import html
-from datetime import date
-import pandas as pd
 import streamlit as st
-from utils.labels import class_label
-
-CAT_ICON = {"예배": "⛪", "행사": "🎈", "교사회의": "📋", "교육": "📖", "심방": "🏠", "기타": "⭐"}
 
 CSS = """
 <style>
@@ -78,58 +72,3 @@ def hero():
         "</div>",
         unsafe_allow_html=True,
     )
-
-
-def stats_line(items):
-    """items: [(아이콘, 라벨, 값), ...] → 현황 칩 한 줄 (현재 홈에서는 사용 안 함)"""
-    chips = "".join(
-        f"<span style='font-size:.86rem;padding:.22rem .75rem;border-radius:999px;background:#eef6ff;"
-        f"border:1px solid #cfe5f8;margin-right:.4rem'>{html.escape(icon)} {html.escape(label)} "
-        f"<b>{html.escape(str(val))}</b></span>" for icon, label, val in items)
-    st.markdown(f"<div style='margin-bottom:1rem'>{chips}</div>", unsafe_allow_html=True)
-
-
-def _s(v):
-    if v is None:
-        return ""
-    try:
-        if pd.isna(v):
-            return ""
-    except Exception:
-        pass
-    return str(v)
-
-
-def _e(v):
-    return html.escape(_s(v))
-
-
-def event_card_html(r, past=False):
-    d = r["event_date"]
-    wd = "월화수목금토일"[d.weekday()]
-    when = f"{d.month}/{d.day}({wd})"
-    if _s(r.get("time_str")):
-        when += f" {_s(r.get('time_str'))}"
-    cat = _s(r.get("category"))
-    icon = CAT_ICON.get(cat, "⭐")
-    tag = f"<span class='ktag'>{html.escape(cat)}</span>" if cat else ""
-    loc = _s(r.get("location"))
-    cls = " past" if past else ""
-    return (
-        f"<div class='kcard{cls}'>"
-        f"<div class='kmuted'>{html.escape(when)}</div>"
-        f"<div class='ktop'>{icon} {_e(r.get('title'))}{tag}</div>"
-        + (f"<div class='ksub'>📍 {html.escape(loc)}</div>" if loc else "")
-        + "</div>"
-    )
-
-
-def event_cards(df):
-    if df is None or df.empty:
-        return
-    today = date.today()
-    out = ["<div class='kcards'>"]
-    for _, r in df.iterrows():
-        out.append(event_card_html(r, past=r["event_date"] < today))
-    out.append("</div>")
-    st.markdown("".join(out), unsafe_allow_html=True)
