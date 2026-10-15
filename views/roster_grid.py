@@ -645,7 +645,9 @@ grid_css = {
 }
 
 grid_setup_finished_at = perf_counter()
-grid_key = f"rg_grid_{part}_{sunday}_{int(bool(mobile))}_{int(is_plan)}"
+# 같은 열 구조에서는 Grid를 재사용하고, 열 수가 달라질 때만 새로 만든다.
+grid_shape = f"mobile_{NC}" if mobile else f"desktop_{NC}_{TN}"
+grid_key = f"rg_grid_{grid_shape}"
 if PERF_MODE:
     grid_key += f"_perf_{PERF_TOKEN}"
 
