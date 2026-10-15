@@ -1,8 +1,6 @@
 streamlit==1.64.0
 supabase>=2.5
 pandas
-pillow
-openpyxl
 streamlit-calendar
 holidays
 streamlit-aggrid>=1.0.5

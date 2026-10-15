@@ -1,17 +1,9 @@
-from time import perf_counter
-
-PAGE_STARTED_AT = perf_counter()
-
-import json
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, JsCode, GridUpdateMode
 from utils.db import fetch, fetch_where, insert, update, delete, delete_where, upsert
-
-PERF_TOKEN = str(st.query_params.get("perf", ""))[:20]
-PERF_MODE = bool(PERF_TOKEN)
 
 st.title("📋 주일 출석부")
 
@@ -94,29 +86,15 @@ with st.container(key="ctl"):
     upcoming = date.today() + timedelta(days=(6 - date.today().weekday()) % 7)
     sunday = c2.date_input("주일 날짜", value=upcoming, key="rg_date")
 
-db_timings = {}
-db_started_at = perf_counter()
-started_at = perf_counter()
 mem = fetch("roster_members", "sort_no")
-db_timings["명단"] = perf_counter() - started_at
-
-started_at = perf_counter()
 cls = fetch("roster_classes")
-db_timings["반 정보"] = perf_counter() - started_at
-
-started_at = perf_counter()
 att = fetch_where("roster_attendance", sunday_date=sunday.isoformat())
-db_timings["실제 출석"] = perf_counter() - started_at
-
-started_at = perf_counter()
 try:
     plan = fetch_where("roster_plan", sunday_date=sunday.isoformat())
     plan_ok_table = True
 except Exception:
     plan = pd.DataFrame()
     plan_ok_table = False
-db_timings["출석 예정"] = perf_counter() - started_at
-db_finished_at = perf_counter()
 
 if mem.empty:
     mem = pd.DataFrame(columns=["id", "part", "grade", "class_no", "name", "sort_no"])
@@ -465,7 +443,6 @@ else:
 
 df = pd.DataFrame(rows)
 df["pick"] = ""
-data_finished_at = perf_counter()
 
 # ---------------------------------------------------------------- 요약 카드
 all_ids = list(mem["id"])
@@ -504,7 +481,6 @@ st.markdown(f"<div class='rg-title'>{sunday.year}년 유치{p}부 · {sunday.mon
             unsafe_allow_html=True)
 
 # ---------------------------------------------------------------- 표 스타일
-grid_setup_started_at = perf_counter()
 FS = "13px" if mobile else "12px"
 row_h, head_h = (38, 32) if mobile else (32, 34)
 LH = f"{row_h - 4}px"
@@ -589,11 +565,6 @@ col_defs += [
     {"field": "pick", "hide": True},
 ]
 
-if PERF_MODE:
-    # 브라우저 안의 Grid 생명주기 시점을 한 번에 서버로 돌려보낸다.
-    df["__perf_trace"] = ""
-    col_defs.append({"field": "__perf_trace", "hide": True})
-
 grid_options = {
     "columnDefs": col_defs,
     "rowHeight": row_h,
@@ -613,31 +584,6 @@ grid_options = {
         "e.api.sizeColumnsToFit();});});}"),
 }
 
-if PERF_MODE:
-    grid_options["onGridReady"] = JsCode(
-        "function(e){"
-        "var t=window.__rgPerfTrace||(window.__rgPerfTrace={});"
-        "t.gridReady=Math.round(performance.now());}")
-    grid_options["onColumnResized"] = JsCode(
-        "function(e){"
-        "var t=window.__rgPerfTrace||(window.__rgPerfTrace={});"
-        "var now=Math.round(performance.now());"
-        "if(t.firstColumnResize==null){t.firstColumnResize=now;}"
-        "t.lastColumnResize=now;"
-        "if(e.finished){requestAnimationFrame(function(){requestAnimationFrame(function(){"
-        "t.afterColumnPaint=Math.round(performance.now());});});}}")
-    grid_options["onFirstDataRendered"] = JsCode(
-        "function(e){"
-        "if(window.__rgPerfReported)return;"
-        "window.__rgPerfReported=true;"
-        "var t=window.__rgPerfTrace||(window.__rgPerfTrace={});"
-        "t.firstData=Math.round(performance.now());"
-        "requestAnimationFrame(function(){requestAnimationFrame(function(){"
-        "t.afterDataPaint=Math.round(performance.now());});});"
-        "setTimeout(function(){"
-        "var row=e.api.getDisplayedRowAtIndex(0);"
-        "if(row){row.setDataValue('__perf_trace',JSON.stringify(t));}},750);}")
-
 grid_css = {
     ".ag-header": {"background-color": "#d6ecff !important", "border-bottom": "2px solid #9ccbf0 !important"},
     ".ag-header-cell": {"background-color": "#d6ecff !important"},
@@ -648,52 +594,22 @@ grid_css = {
     ".ag-body-viewport": {"overflow-y": "hidden !important"},
 }
 
-grid_setup_finished_at = perf_counter()
 # 같은 열 구조에서는 Grid를 재사용하고, 열 수가 달라질 때만 새로 만든다.
 grid_shape = f"mobile_{NC}" if mobile else f"desktop_{NC}_{TN}"
 grid_key = f"rg_grid_{grid_shape}"
-if PERF_MODE:
-    grid_key += f"_perf_{PERF_TOKEN}"
 
-grid_call_started_at = perf_counter()
 resp = AgGrid(
     df, gridOptions=grid_options, allow_unsafe_jscode=True, custom_css=grid_css,
     update_mode=GridUpdateMode.VALUE_CHANGED,
     server_sync_strategy="server_wins",
     height=head_h + row_h * (len(df) + 2) + 30, fit_columns_on_grid_load=True,
     key=grid_key)
-grid_call_finished_at = perf_counter()
 
 try:
     returned = resp["data"]
     records = returned.to_dict("records") if hasattr(returned, "to_dict") else returned
 except Exception:
     records = []
-
-if PERF_MODE:
-    perf_context = f"{part}|{sunday}|{int(bool(mobile))}|{int(is_plan)}|{PERF_TOKEN}"
-    snapshots = st.session_state.setdefault("rg_perf_snapshots", {})
-    if perf_context not in snapshots:
-        snapshots[perf_context] = {
-            "db": db_finished_at - db_started_at,
-            "db_parts": db_timings.copy(),
-            "data": data_finished_at - db_finished_at,
-            "grid_setup": grid_setup_finished_at - grid_setup_started_at,
-            "server_before_grid": grid_call_started_at - PAGE_STARTED_AT,
-            "grid_call": grid_call_finished_at - grid_call_started_at,
-        }
-    snapshot = snapshots[perf_context]
-    for record in records or []:
-        value = record.get("__perf_trace") if hasattr(record, "get") else None
-        if value not in (None, ""):
-            try:
-                trace = json.loads(value)
-                if isinstance(trace, dict):
-                    snapshot["browser_trace"] = trace
-                    snapshot["browser_grid"] = float(trace["firstData"]) / 1000
-            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-                pass
-            break
 
 if is_plan:
     st.markdown(
@@ -712,58 +628,6 @@ else:
         "<span style='background:#f1f3f5;color:#495057'>미확인</span>"
         + ("<span style='background:#e7f1fb;color:#1b3a5c'>출/재 = 출석/재적</span>" if mobile else "")
         + "</div>", unsafe_allow_html=True)
-
-if PERF_MODE:
-    st.markdown("#### ⏱️ 초기 로딩 진단")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("DB 조회", f"{snapshot['db']:.3f}초")
-    c2.metric("표 데이터 준비", f"{snapshot['data']:.3f}초")
-    c3.metric("Grid 설정 준비", f"{snapshot['grid_setup']:.3f}초")
-    browser_grid = snapshot.get("browser_grid")
-    c4.metric("브라우저 표 표시", f"{browser_grid:.3f}초" if browser_grid else "측정 중")
-    st.caption(
-        "DB 세부 · "
-        + " / ".join(f"{name} {seconds:.3f}초" for name, seconds in snapshot["db_parts"].items())
-        + f" · 서버 실행→Grid 전달 {snapshot['server_before_grid']:.3f}초"
-        + f" · Grid 컴포넌트 호출 {snapshot['grid_call']:.3f}초")
-    trace = snapshot.get("browser_trace", {})
-    if trace:
-        grid_ready = trace.get("gridReady")
-        first_data = trace.get("firstData")
-        after_data_paint = trace.get("afterDataPaint")
-        first_column_resize = trace.get("firstColumnResize")
-        last_column_resize = trace.get("lastColumnResize")
-        after_column_paint = trace.get("afterColumnPaint")
-
-        def elapsed(end, start=0):
-            if not isinstance(end, (int, float)) or not isinstance(start, (int, float)):
-                return None
-            return max(0.0, (end - start) / 1000)
-
-        browser_parts = [
-            ("iframe→Grid 준비", elapsed(grid_ready)),
-            ("Grid 준비→첫 데이터", elapsed(first_data, grid_ready)),
-            ("첫 데이터→화면 반영", elapsed(after_data_paint, first_data)),
-            ("열 너비 이벤트 구간", elapsed(last_column_resize, first_column_resize)),
-        ]
-        cols = st.columns(4)
-        for col, (label, seconds) in zip(cols, browser_parts):
-            col.metric(label, f"{seconds:.3f}초" if seconds is not None else "미측정")
-
-        milestones = [
-            ("Grid 준비", grid_ready),
-            ("첫 데이터", first_data),
-            ("데이터 화면 반영", after_data_paint),
-            ("마지막 열 너비 변경", last_column_resize),
-            ("열 너비 화면 반영", after_column_paint),
-        ]
-        st.caption(
-            "브라우저 시점(iframe 시작 기준) · "
-            + " / ".join(
-                f"{label} {value / 1000:.3f}초"
-                for label, value in milestones if isinstance(value, (int, float))))
-        st.caption("브라우저 세부 시간은 이벤트와 다음 화면 그리기 시점을 이용한 근사값입니다.")
-    st.caption("다시 측정하려면 URL의 perf 숫자를 바꾸세요. 예: ?perf=1 → ?perf=2")
 
 name_of = {r["id"]: str(r["name"]) for _, r in mem.iterrows()}
 
