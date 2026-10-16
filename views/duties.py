@@ -39,22 +39,33 @@ def sv(k):
     return v if isinstance(v, str) else ""
 
 
-fk = f"{sunday}_{part}"
+# 저장할 때마다 번호가 바뀌어 입력칸이 새로(빈 값으로) 시작됨
+ver = st.session_state.get("du_ver", 0)
+load = False
+if cur:
+    load = st.checkbox("저장된 내용 불러와서 수정하기", key=f"du_load_{sunday}_{part}_{ver}")
+
+fk = f"{sunday}_{part}_{ver}_{int(load)}"
 with st.form(f"du_form_{fk}"):
     st.caption(f"{sunday.month}월 {sunday.day}일 ({WD[sunday.weekday()]}) · {part}")
-    off = st.text_input("헌금기도", value=sv("offering_prayer"), key=f"o_{fk}")
-    main = st.text_input("대표기도", value=sv("main_prayer"), key=f"m_{fk}")
-    cln = st.text_input("청소당번 (여러 명은 쉼표로)", value=sv("cleaning"), key=f"c_{fk}")
+    off = st.text_input("헌금기도", value=sv("offering_prayer") if load else "", key=f"o_{fk}")
+    main = st.text_input("대표기도", value=sv("main_prayer") if load else "", key=f"m_{fk}")
+    cln = st.text_input("청소당번 (여러 명은 쉼표로)", value=sv("cleaning") if load else "",
+                        key=f"c_{fk}")
     saved = st.form_submit_button("저장", type="primary", use_container_width=True)
 
 if saved:
-    upsert("duties_weekly",
-           [{"sunday_date": sunday.isoformat(), "part": part,
-             "offering_prayer": off.strip() or None, "main_prayer": main.strip() or None,
-             "cleaning": cln.strip() or None,
-             "updated_at": datetime.now(KST).isoformat()}], "sunday_date,part")
-    st.session_state["flash"] = f"{part} 섬김 배정을 저장했습니다."
-    st.rerun()
+    if not (off.strip() or main.strip() or cln.strip()):
+        st.warning("입력된 내용이 없습니다.")
+    else:
+        upsert("duties_weekly",
+               [{"sunday_date": sunday.isoformat(), "part": part,
+                 "offering_prayer": off.strip() or None, "main_prayer": main.strip() or None,
+                 "cleaning": cln.strip() or None,
+                 "updated_at": datetime.now(KST).isoformat()}], "sunday_date,part")
+        st.session_state["du_ver"] = ver + 1
+        st.session_state["flash"] = f"{sunday.month}/{sunday.day} {part} 섬김 배정을 저장했습니다."
+        st.rerun()
 
 st.divider()
 st.markdown("#### 최근 배정")
@@ -62,7 +73,8 @@ if df.empty:
     st.caption("등록된 배정이 없습니다.")
 else:
     show = df.sort_values(["sunday_date", "part"], ascending=[False, True]).head(12).copy()
-    show["주일"] = show["sunday_date"].apply(lambda d: f"{d.month}/{d.day}")
+    show["주일"] = show["sunday_date"].apply(
+        lambda d: f"{d.month}/{d.day}({'월화수목금토일'[d.weekday()]})")
     show = show.rename(columns={"part": "부", "offering_prayer": "헌금기도",
                                 "main_prayer": "대표기도", "cleaning": "청소당번"})
     st.dataframe(show[["주일", "부", "헌금기도", "대표기도", "청소당번"]].fillna(""),
