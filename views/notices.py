@@ -15,7 +15,13 @@ st.markdown("""
 .st-key-nlist [data-testid="stVerticalBlock"] {gap: .5rem;}
 .st-key-nlist [data-testid="stExpander"] {border-radius: 12px; background: #f6faff;
   border: 1px solid #d5e6f7;}
-.st-key-nlist [data-testid="stExpander"] p {
+/* 제목 줄: 높이·정렬 고정 */
+.st-key-nlist [data-testid="stExpander"] summary {
+  padding: .55rem .8rem; align-items: center;}
+.st-key-nlist [data-testid="stExpander"] summary p {
+  line-height: 1.4; margin: 0; font-size: .95rem;}
+/* 펼친 본문에만 적용 */
+.st-key-nlist [data-testid="stExpanderDetails"] p {
   word-break: keep-all; overflow-wrap: break-word;
   line-height: 1.8; font-size: .95rem; margin-bottom: .6rem;}
 </style>
