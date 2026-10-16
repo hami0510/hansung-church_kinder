@@ -20,8 +20,11 @@ st.markdown("""
 .dayband .badge {background: #4a9fe0; color: #fff; border-radius: 999px; padding: 0 .55rem;
                  font-size: .72rem; font-weight: 700;}
 .evlegend {font-size: .78rem; color: #6b7c93; margin: .2rem 0 .4rem;}
+/* 컨테이너 안(접힌 영역 포함) 모든 단계의 간격 제거 */
 .st-key-evlist [data-testid="stVerticalBlock"] {gap: 0 !important;}
 .st-key-evlist [data-testid="stElementContainer"] {margin: 0 !important;}
+.st-key-evlist [data-testid="stExpanderDetails"] {padding-top: .2rem !important;}
+.st-key-evlist .stButton {margin: 0 !important;}
 .st-key-evlist .stButton > button {
   width: 100%; min-height: 2.2rem; height: 2.2rem; line-height: 2.2rem;
   border: none !important; background: transparent !important;
@@ -31,7 +34,7 @@ st.markdown("""
 .st-key-evlist .stButton > button > div,
 .st-key-evlist .stButton > button p {
   width: 100%; text-align: left !important; justify-content: flex-start !important; margin: 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+  line-height: 2.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 .st-key-evlist .stButton > button:hover {background: #f1f8ff !important;}
 </style>
 """, unsafe_allow_html=True)
@@ -108,7 +111,7 @@ def edit_dialog(row):
             st.rerun()
 
 
-def render_days(df):
+def render_days(df, key_prefix="n"):
     """날짜별 띠 + 한 줄 일정 (줄을 누르면 수정창)"""
     for d, g in df.groupby("event_date", sort=True):
         is_today = d == today
@@ -121,8 +124,21 @@ def render_days(df):
             tm = r["time_str"] or "종일"
             loc = s(r.get("location"))
             label = f"{tm}   {dot} {s(r['title'])}" + (f"  ·  {loc}" if loc else "")
-            if st.button(label, key=f"ev_{r['id']}", use_container_width=True):
+            if st.button(label, key=f"ev_{key_prefix}_{r['id']}", use_container_width=True):
                 edit_dialog(r)
+
+
+def render_flat(df, key_prefix="l"):
+    """날짜 띠 없이 날짜가 포함된 한 줄 목록 (이후 일정용)"""
+    for _, r in df.iterrows():
+        d = r["event_date"]
+        dot = DOT.get(s(r.get("category")), "⚪")
+        tm = r["time_str"] or "종일"
+        loc = s(r.get("location"))
+        label = (f"{d.month}/{d.day}({WD[d.weekday()]})   {tm}   {dot} {s(r['title'])}"
+                 + (f"  ·  {loc}" if loc else ""))
+        if st.button(label, key=f"ev_{key_prefix}_{r['id']}", use_container_width=True):
+            edit_dialog(r)
 
 
 tab_view, tab_add, tab_del = st.tabs(["일정 보기", "일정 등록", "일정 일괄 삭제"])
@@ -151,17 +167,17 @@ with tab_view:
             with st.container(key="evlist"):
                 limit = today + timedelta(days=7)
                 if kw:
-                    render_days(view)
+                    render_days(view, "s")
                 else:
                     near = view[view["event_date"] <= limit]
                     later = view[view["event_date"] > limit]
                     if not near.empty:
-                        render_days(near)
+                        render_days(near, "n")
                     else:
                         st.caption("이번 주 일정이 없습니다.")
                     if not later.empty:
                         with st.expander(f"이후 일정 {len(later)}건 보기"):
-                            render_days(later)
+                            render_flat(later, "l")
 
 # ---------------------------------------------------------------- 일정 등록
 with tab_add:
