@@ -540,7 +540,7 @@ else:
          "cellStyle": base_style, "sortable": False},
     ]
     for n in range(1, TN + 1):
-        col_defs.append({"field": f"t{n}", "headerName": "담임샘" if n == 1 else "", "width": 56,
+        col_defs.append({"field": f"t{n}", "headerName": "담임샘" if n == 1 else "부담임", "width": 56,
                          "minWidth": 42, "cellStyle": cell_style(f"ts{n}", bold=True),
                          "valueFormatter": name_fmt(f"ts{n}"), "sortable": False})
         col_defs.append({"field": f"ti{n}", "hide": True})
