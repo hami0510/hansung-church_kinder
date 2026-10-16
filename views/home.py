@@ -1,5 +1,6 @@
 import html
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 from utils.db import fetch
@@ -33,7 +34,7 @@ st.markdown("""
 
 hero()
 
-today = date.today()
+today = datetime.now(ZoneInfo("Asia/Seoul")).date()   # 한국 시간 기준 오늘
 
 
 def fmt_time(v):
