@@ -83,7 +83,8 @@ if "flash" in st.session_state:
 with st.container(key="ctl"):
     c1, c2 = st.columns(2)
     part = c1.radio("부", PARTS, horizontal=True, key="rg_part")
-    upcoming = date.today() + timedelta(days=(6 - date.today().weekday()) % 7)
+    _today = datetime.now(KST).date()
+    upcoming = _today + timedelta(days=(6 - _today.weekday()) % 7)
     sunday = c2.date_input("주일 날짜", value=upcoming, key="rg_date")
 
 mem = fetch("roster_members", "sort_no")
