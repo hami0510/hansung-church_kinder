@@ -5,7 +5,7 @@ import streamlit as st
 from utils import db
 from utils.db import fetch, upsert
 
-st.title("🙏 섬김 배정")
+st.title("🧹 섬김 배정")
 
 KST = ZoneInfo("Asia/Seoul")
 WD = "월화수목금토일"
