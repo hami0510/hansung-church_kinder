@@ -97,7 +97,7 @@ def cl_label(o):
     return "🌱 새싹반" if o[0] == "새싹" else f"{o[0]}{o[1]}반"
 
 
-# ---------------------------------------------------------------- 반별 표 (누구나)
+# ---------------------------------------------------------------- 반별 표
 with tabs[0]:
     sel = st.selectbox("반", classes, format_func=cl_label, key="tl_cls_v")
     kids = mem[(mem["grade"] == sel[0]) & (mem["class_no"] == sel[1])].sort_values("sort_no")
@@ -111,7 +111,7 @@ with tabs[0]:
     st.caption(f"{sunday.month}월 {sunday.day}일 · {part} {cl_label(sel)}")
     st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
-# ---------------------------------------------------------------- 월 집계 (누구나)
+# ---------------------------------------------------------------- 월 집계 (학년별 분리)
 with tabs[1]:
     mo = st.selectbox("월", list(range(1, 13)), index=sunday.month - 1,
                       format_func=lambda m: f"{m}월")
@@ -134,14 +134,28 @@ with tabs[1]:
         r = PT_REC * int(sub["recite"].fillna(False).astype(bool).sum()) if len(sub) else 0
         f = PT_FAM * int(sub["family"].fillna(False).astype(bool).sum()) if len(sub) else 0
         e = PT_EVA * int(sub["evangel"].fillna(0).astype(int).sum()) if len(sub) else 0
-        out.append({"반": cl_label((k["grade"], k["class_no"])), "이름": k["name"],
-                    "출석": a, "암송": r, "가정예배": f, "전도": e, f"{mo}월 합계": a + r + f + e})
+        out.append({"학년": k["grade"], "반": cl_label((k["grade"], k["class_no"])),
+                    "이름": k["name"], "출석": a, "암송": r, "가정예배": f, "전도": e,
+                    f"{mo}월 합계": a + r + f + e})
     dfm = pd.DataFrame(out)
-    st.dataframe(dfm, hide_index=True, use_container_width=True)
-    if not dfm.empty:
-        st.markdown("**반별 합계**")
-        st.dataframe(dfm.groupby("반")[f"{mo}월 합계"].sum().reset_index(),
-                     hide_index=True, use_container_width=True)
+    tot_col = f"{mo}월 합계"
+    if dfm.empty:
+        st.info("표시할 데이터가 없습니다.")
+    else:
+        gnames = ["조이", "해피", "홀리", "새싹"]
+        gtabs = st.tabs(gnames)
+        for gt, gname in zip(gtabs, gnames):
+            with gt:
+                sub_g = dfm[dfm["학년"] == gname].drop(columns=["학년"])
+                if sub_g.empty:
+                    st.caption("해당 학년 데이터가 없습니다.")
+                    continue
+                st.metric(f"{gname} {mo}월 합계", int(sub_g[tot_col].sum()))
+                st.dataframe(sub_g, hide_index=True, use_container_width=True)
+                if gname != "새싹":
+                    st.markdown("**반별 합계**")
+                    st.dataframe(sub_g.groupby("반")[tot_col].sum().reset_index(),
+                                 hide_index=True, use_container_width=True)
 
 # ---------------------------------------------------------------- 입력 · 이월 점수 (관리자만)
 if is_admin:
