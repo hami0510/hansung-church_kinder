@@ -15,6 +15,9 @@ st.markdown("""
 .st-key-nlist [data-testid="stVerticalBlock"] {gap: .5rem;}
 .st-key-nlist [data-testid="stExpander"] {border-radius: 12px; background: #f6faff;
   border: 1px solid #d5e6f7;}
+.st-key-nlist [data-testid="stExpander"] p {
+  word-break: keep-all; overflow-wrap: break-word;
+  line-height: 1.8; font-size: .95rem; margin-bottom: .6rem;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -62,7 +65,7 @@ with tab_list:
                         edit_key = f"editing_{nid}"
                         if not (manage and st.session_state.get(edit_key)):
                             if content:
-                                st.markdown(content.replace("\n", "  \n"))
+                                st.markdown(content.replace("\r", "").replace("\n", "  \n"))
                             else:
                                 st.caption("내용이 없습니다.")
                             if manage:
