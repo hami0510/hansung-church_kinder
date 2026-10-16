@@ -19,7 +19,7 @@ except Exception:
 SHOW_HOLIDAYS = True
 RENAME = {"기독탄신일": "성탄절", "신정연휴": "신정"}
 
-# 이 화면 전용 스타일 (공지는 기본 expander를 쓰므로 간격만 조정)
+# 이 화면 전용 스타일
 st.markdown("""
 <style>
 .hero {margin-bottom: 1.2rem !important;}
@@ -29,7 +29,13 @@ st.markdown("""
 .st-key-nlist [data-testid="stExpander"] {border-radius: 12px; background: #f6faff;
   border: 1px solid #d5e6f7;}
 .st-key-nlist {margin-bottom: 1.2rem;}
-.st-key-nlist [data-testid="stExpander"] p {
+/* 제목 줄: 높이·정렬 고정 */
+.st-key-nlist [data-testid="stExpander"] summary {
+  padding: .55rem .8rem; align-items: center;}
+.st-key-nlist [data-testid="stExpander"] summary p {
+  line-height: 1.4; margin: 0; font-size: .95rem;}
+/* 펼친 본문에만 적용 */
+.st-key-nlist [data-testid="stExpanderDetails"] p {
   word-break: keep-all; overflow-wrap: break-word;
   line-height: 1.8; font-size: .95rem; margin-bottom: .6rem;}
 </style>
