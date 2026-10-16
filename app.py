@@ -40,8 +40,9 @@ visit_request = st.Page("views/visit_request.py", title="심방 요청", icon="�
 prayer_request = st.Page("views/prayer_request.py", title="기도제목 요청", icon="🙏")
 duties = st.Page("views/duties.py", title="섬김 배정", icon="🤝")
 
-menu = [home, notices, events, roster, talent, visit_request, prayer_request]
+menu = [home, notices, events, roster, visit_request, prayer_request]
 if role == "admin":
+    menu.append(talent)
     menu.append(duties)
 pages = {"메뉴": menu}
 
