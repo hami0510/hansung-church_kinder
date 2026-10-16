@@ -38,7 +38,6 @@ if role == "admin":
 pages = {"메뉴": menu}
 
 
-@st.cache_data(ttl=60)
 def load_duties(sunday_iso: str):
     from utils.db import fetch
     df = fetch("duties_weekly")
