@@ -29,6 +29,9 @@ st.markdown("""
 .st-key-nlist [data-testid="stExpander"] {border-radius: 12px; background: #f6faff;
   border: 1px solid #d5e6f7;}
 .st-key-nlist {margin-bottom: 1.2rem;}
+.st-key-nlist [data-testid="stExpander"] p {
+  word-break: keep-all; overflow-wrap: break-word;
+  line-height: 1.8; font-size: .95rem; margin-bottom: .6rem;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -86,7 +89,7 @@ if not nt.empty:
             content = r["content"] if isinstance(r.get("content"), str) else ""
             with st.expander(f"{mark} {title}  ·  {when_s}"):
                 if content:
-                    st.markdown(html.escape(content).replace("\n", "  \n"))
+                    st.markdown(html.escape(content).replace("\r", "").replace("\n", "  \n"))
                 else:
                     st.caption("내용이 없습니다.")
 
