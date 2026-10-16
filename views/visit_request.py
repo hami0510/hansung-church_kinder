@@ -46,7 +46,9 @@ with tabs[0]:
                     "desired_date": want.isoformat() if use_date else None,
                     "memo": memo or None,
                 })
-                notify("visit", "새 심방 요청이 접수되었습니다.")
+                notify("visit", "새 심방 요청이 접수되었습니다.",
+                       요청교사=requester.strip(), 대상=child_text.strip(), 사유=reason,
+                       희망날짜=want.isoformat() if use_date else "", 메모=memo)
                 st.session_state["flash"] = "심방 요청이 접수되었습니다. 비밀번호를 꼭 기억해 두세요."
                 st.rerun()
 
