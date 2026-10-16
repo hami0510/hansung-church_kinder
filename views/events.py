@@ -1,4 +1,5 @@
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 from utils.db import fetch, insert, update, delete
@@ -8,7 +9,7 @@ st.title("📅 일정 관리")
 CATS = ["예배", "행사", "교사회의", "교육", "심방", "기타"]
 DOT = {"심방": "🔵", "예배": "🟡", "행사": "🟢", "교사회의": "🟣", "교육": "🟠", "기타": "⚪"}
 WD = "월화수목금토일"
-today = date.today()
+today = datetime.now(ZoneInfo("Asia/Seoul")).date()   # 한국 시간 기준 오늘
 
 st.markdown("""
 <style>
