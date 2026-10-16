@@ -54,6 +54,10 @@ def notify(kind: str, message: str = "", **fields):
     """notify('prayer', '...', 선생님=..., 내용=...) 형태로 호출. fields가 메일 본문이 됨."""
     titles = {"prayer": "[유치부] 새 기도제목 접수", "visit": "[유치부] 새 심방 요청 접수"}
     subject = titles.get(kind, "[유치부] 새 요청 접수")
+    # 신청자 이름을 제목 뒤에 붙임 (기도제목은 '선생님', 심방은 '요청교사')
+    who = str(fields.get("선생님") or fields.get("요청교사") or "").strip()
+    if who:
+        subject = f"{subject} - {who}"
     lines = [(k, v) for k, v in fields.items() if v not in (None, "")]
     if not lines:
         lines = [("알림", message or "새 요청이 접수되었습니다.")]
