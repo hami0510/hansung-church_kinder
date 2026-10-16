@@ -21,6 +21,13 @@ if not is_admin:
 today = datetime.now(KST).date()
 upcoming = today + timedelta(days=(6 - today.weekday()) % 7)
 
+
+def delete_duty(sunday_iso, part_name):
+    db.get_client().table("duties_weekly").delete() \
+        .eq("sunday_date", sunday_iso).eq("part", part_name).execute()
+    db._fetch_cached.clear()
+
+
 c1, c2 = st.columns(2)
 sunday = c2.date_input("주일 날짜", value=upcoming, key="du_date")
 part = c1.radio("부", ["1부", "2부"], horizontal=True, key="du_part")
@@ -67,6 +74,20 @@ if saved:
         st.session_state["flash"] = f"{sunday.month}/{sunday.day} {part} 섬김 배정을 저장했습니다."
         st.rerun()
 
+# ---------------------------------------------------------------- 선택한 날짜·부 삭제
+if cur:
+    with st.expander(f"🗑️ {sunday.month}/{sunday.day} {part} 배정 삭제"):
+        st.caption(f"헌금기도 {sv('offering_prayer') or '-'} · 대표기도 {sv('main_prayer') or '-'} · "
+                   f"청소당번 {sv('cleaning') or '-'}")
+        ok1 = st.checkbox("삭제에 동의합니다 (되돌릴 수 없습니다)",
+                          key=f"du_ok1_{sunday}_{part}_{ver}")
+        if st.button("이 배정 삭제", type="primary", disabled=not ok1,
+                     key=f"du_del1_{sunday}_{part}_{ver}", use_container_width=True):
+            delete_duty(sunday.isoformat(), part)
+            st.session_state["du_ver"] = ver + 1
+            st.session_state["flash"] = f"{sunday.month}/{sunday.day} {part} 배정을 삭제했습니다."
+            st.rerun()
+
 st.divider()
 st.markdown("#### 최근 배정")
 if df.empty:
@@ -75,7 +96,26 @@ else:
     show = df.sort_values(["sunday_date", "part"], ascending=[False, True]).head(12).copy()
     show["주일"] = show["sunday_date"].apply(
         lambda d: f"{d.month}/{d.day}({'월화수목금토일'[d.weekday()]})")
-    show = show.rename(columns={"part": "부", "offering_prayer": "헌금기도",
-                                "main_prayer": "대표기도", "cleaning": "청소당번"})
-    st.dataframe(show[["주일", "부", "헌금기도", "대표기도", "청소당번"]].fillna(""),
+    tbl = show.rename(columns={"part": "부", "offering_prayer": "헌금기도",
+                               "main_prayer": "대표기도", "cleaning": "청소당번"})
+    st.dataframe(tbl[["주일", "부", "헌금기도", "대표기도", "청소당번"]].fillna(""),
                  hide_index=True, use_container_width=True)
+
+    # ------------------------------------------------------------ 여러 건 선택 삭제
+    with st.expander("🗑️ 여러 건 골라서 삭제"):
+        opts = {}
+        for _, r in show.iterrows():
+            lab = f"{r['주일']} · {r['part']}"
+            opts[lab] = (r["sunday_date"].isoformat(), r["part"])
+        picked = st.multiselect("삭제할 배정 선택", list(opts.keys()), key=f"du_multi_{ver}")
+        ok2 = st.checkbox("선택한 배정을 삭제하는 데 동의합니다 (되돌릴 수 없습니다)",
+                          key=f"du_ok2_{ver}")
+        if st.button(f"선택 {len(picked)}건 삭제", type="primary",
+                     disabled=not (picked and ok2), key=f"du_del2_{ver}",
+                     use_container_width=True):
+            for lab in picked:
+                d_iso, p_name = opts[lab]
+                delete_duty(d_iso, p_name)
+            st.session_state["du_ver"] = ver + 1
+            st.session_state["flash"] = f"{len(picked)}건을 삭제했습니다."
+            st.rerun()
