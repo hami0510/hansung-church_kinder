@@ -534,7 +534,7 @@ if mobile:
                      "width": 48, "minWidth": 40, "cellStyle": base_style, "sortable": False})
 else:
     col_defs = [
-        {"field": "age", "headerName": "나이", "width": 62, "minWidth": 46,
+        {"field": "age", "headerName": "구분", "width": 62, "minWidth": 46,
          "cellStyle": lab_style, "sortable": False},
         {"field": "no", "headerName": "반", "width": 36, "minWidth": 28,
          "cellStyle": base_style, "sortable": False},
