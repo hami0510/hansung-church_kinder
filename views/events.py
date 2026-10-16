@@ -13,9 +13,11 @@ today = datetime.now(ZoneInfo("Asia/Seoul")).date()   # 한국 시간 기준 오
 
 st.markdown("""
 <style>
+/* 날짜 띠: 높이 고정, 아래 일정과 겹치지 않게 */
 .dayband {display: flex; align-items: center; gap: .5rem; background: #eaf5ff;
-          border-left: 5px solid #8ec9f5; border-radius: 10px; padding: .35rem .8rem;
-          margin: 1rem 0 .2rem; font-weight: 800; color: #1b3a5c; font-size: .92rem;}
+          border-left: 5px solid #8ec9f5; border-radius: 10px; padding: 0 .8rem;
+          height: 2.1rem; box-sizing: border-box;
+          margin: .9rem 0 .25rem; font-weight: 800; color: #1b3a5c; font-size: .92rem;}
 .dayband.today {background: #fff3bf; border-left-color: #f2c744;}
 .dayband .badge {background: #4a9fe0; color: #fff; border-radius: 999px; padding: 0 .55rem;
                  font-size: .72rem; font-weight: 700;}
@@ -23,7 +25,8 @@ st.markdown("""
 /* 컨테이너 안(접힌 영역 포함) 모든 단계의 간격 제거 */
 .st-key-evlist [data-testid="stVerticalBlock"] {gap: 0 !important;}
 .st-key-evlist [data-testid="stElementContainer"] {margin: 0 !important;}
-.st-key-evlist [data-testid="stExpanderDetails"] {padding-top: .2rem !important;}
+.st-key-evlist [data-testid="stMarkdownContainer"] {margin: 0 !important;}
+.st-key-evlist [data-testid="stExpanderDetails"] {padding: .2rem .4rem .6rem !important;}
 .st-key-evlist .stButton {margin: 0 !important;}
 .st-key-evlist .stButton > button {
   width: 100%; min-height: 2.2rem; height: 2.2rem; line-height: 2.2rem;
@@ -128,19 +131,6 @@ def render_days(df, key_prefix="n"):
                 edit_dialog(r)
 
 
-def render_flat(df, key_prefix="l"):
-    """날짜 띠 없이 날짜가 포함된 한 줄 목록 (이후 일정용)"""
-    for _, r in df.iterrows():
-        d = r["event_date"]
-        dot = DOT.get(s(r.get("category")), "⚪")
-        tm = r["time_str"] or "종일"
-        loc = s(r.get("location"))
-        label = (f"{d.month}/{d.day}({WD[d.weekday()]})   {tm}   {dot} {s(r['title'])}"
-                 + (f"  ·  {loc}" if loc else ""))
-        if st.button(label, key=f"ev_{key_prefix}_{r['id']}", use_container_width=True):
-            edit_dialog(r)
-
-
 tab_view, tab_add, tab_del = st.tabs(["일정 보기", "일정 등록", "일정 일괄 삭제"])
 
 # ---------------------------------------------------------------- 일정 보기
@@ -177,7 +167,7 @@ with tab_view:
                         st.caption("이번 주 일정이 없습니다.")
                     if not later.empty:
                         with st.expander(f"이후 일정 {len(later)}건 보기"):
-                            render_flat(later, "l")
+                            render_days(later, "l")
 
 # ---------------------------------------------------------------- 일정 등록
 with tab_add:
