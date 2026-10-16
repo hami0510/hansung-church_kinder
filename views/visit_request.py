@@ -1,4 +1,5 @@
-from datetime import date
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 from utils.auth import can_manage, can_view_requests
@@ -9,6 +10,7 @@ from utils.passcode import valid_pin, make_hash, check, locked, add_fail, reset_
 REASONS = ["결석이 이어짐", "아픔·건강", "가정 사정", "새가족 방문", "축하·격려", "기타"]
 STATUS = ["접수", "예정", "완료"]
 ICON = {"접수": "🆕", "예정": "📅", "완료": "✅"}
+KST = ZoneInfo("Asia/Seoul")
 
 st.title("🏠 심방 요청")
 
@@ -30,7 +32,7 @@ with tabs[0]:
         child_text = st.text_input("대상 (선택)", placeholder="반 정도만 적어도 됩니다 (예: 조이반)")
         reason = st.selectbox("사유", REASONS)
         use_date = st.checkbox("희망 날짜 지정")
-        want = st.date_input("희망 날짜", value=date.today())
+        want = st.date_input("희망 날짜", value=datetime.now(KST).date())
         memo = st.text_area("메모 (상황을 간단히)")
         if st.form_submit_button("심방 요청 보내기", use_container_width=True):
             if not requester.strip():
