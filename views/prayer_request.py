@@ -40,7 +40,8 @@ with tabs[0]:
                 insert("prayer_requests", {"requester_name": requester.strip(),
                                            "pass_hash": make_hash(requester, pin),
                                            "category": cat, "content": content.strip()})
-                notify("prayer", "새 기도제목이 접수되었습니다.")
+                notify("prayer", "새 기도제목이 접수되었습니다.",
+                       선생님=requester.strip(), 구분=cat, 내용=content.strip())
                 st.session_state["flash"] = "기도제목이 접수되었습니다. 비밀번호를 꼭 기억해 두세요."
                 st.rerun()
 
