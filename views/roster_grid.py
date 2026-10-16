@@ -17,6 +17,7 @@ REASONS = [
     "연락안됨", "병결(본인 혹은 가족)", "출근, 출장", "가족모임(명절, 여행 등)",
     "경조사(장례식, 결혼식)", "이사", "외국", "출산", "타교회", "1회성", "기타 개인사정", "대예배",
 ]
+CUSTOM = "상세(직접 입력)"
 PLAN_STATES = ["예정", "불참", "미정"]
 STAGE_PLAN = "📝 예정 (주중)"
 STAGE_REAL = "✅ 실제 (주일)"
@@ -713,6 +714,30 @@ else:
     show_grouped("❌ 결석", [(m, s[1]) for m, s in status.items() if not s[0]])
 
 
+# ---------------------------------------------------------------- 사유 선택 (상세 직접 입력 포함)
+def reason_picker(label, key_sel, key_txt, cur_reason):
+    """드롭다운 + '상세(직접 입력)' 선택 시 입력칸. 반환: 사유 문자열 또는 None"""
+    opts = ["(사유 선택)"] + REASONS + [CUSTOM]
+    is_custom0 = bool(cur_reason) and cur_reason not in REASONS
+    if is_custom0:
+        idx = opts.index(CUSTOM)
+    elif cur_reason in opts:
+        idx = opts.index(cur_reason)
+    else:
+        idx = 0
+    sel = st.selectbox(label, opts, index=idx, key=key_sel)
+    if sel == CUSTOM:
+        txt = st.text_input("상세 사유", value=cur_reason if is_custom0 else "",
+                            key=key_txt, placeholder="예: 할머니 댁 방문").strip()
+        if not txt:
+            st.caption("⚠️ 상세 사유를 입력해 주세요.")
+            return None
+        return txt
+    if sel == "(사유 선택)":
+        return None
+    return sel
+
+
 # ---------------------------------------------------------------- 팝업
 @st.dialog("출결 처리")
 def attend_dialog(member_id: str, name: str, d_iso: str, cur_present, cur_reason: str):
@@ -726,11 +751,7 @@ def attend_dialog(member_id: str, name: str, d_iso: str, cur_present, cur_reason
                       index=1 if cur_present is False else 0, key=f"rgd_c_{member_id}")
     reason = None
     if choice == "결석":
-        opts = ["(사유 선택)"] + REASONS
-        idx = opts.index(cur_reason) if cur_reason in opts else 0
-        reason = st.selectbox("결석 사유", opts, index=idx, key=f"rgd_r_{member_id}")
-        if reason == "(사유 선택)":
-            reason = None
+        reason = reason_picker("결석 사유", f"rgd_r_{member_id}", f"rgd_t_{member_id}", cur_reason)
     b1, b2 = st.columns(2)
     if b1.button("저장", type="primary", use_container_width=True, key=f"rgd_s_{member_id}"):
         if not is_admin:
@@ -759,11 +780,7 @@ def plan_dialog(member_id: str, name: str, d_iso: str, cur_status, cur_reason: s
                       key=f"pld_c_{member_id}")
     reason = None
     if choice == "불참":
-        opts = ["(사유 선택)"] + REASONS
-        idx = opts.index(cur_reason) if cur_reason in opts else 0
-        reason = st.selectbox("불참 사유", opts, index=idx, key=f"pld_r_{member_id}")
-        if reason == "(사유 선택)":
-            reason = None
+        reason = reason_picker("불참 사유", f"pld_r_{member_id}", f"pld_t_{member_id}", cur_reason)
     editor = st.text_input("입력하는 선생님 이름 (선택)", key="rg_editor_name",
                            placeholder="예: 홍길동")
     b1, b2 = st.columns(2)
